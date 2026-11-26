@@ -1,3 +1,5 @@
+**[🇮🇹 Leggi in Italiano](README.it.md)**
+
 # Enterprise AI Assistant
 
 [![Demo Enterprise AI Assistant](docs/demo.mp4)](https://github.com/user-attachments/assets/ea738dbb-b017-463a-999f-77d9f820d025)

@@ -529,7 +529,13 @@ Per usarlo dal frontend: scegliere **Spring Boot** nel selettore Backend dell'in
 - **Git**: `git init -b main`, `git add .`, primo commit (212 file, identità presa dalla configurazione globale). Controlli prima del commit: nessun `.env`/dipendenza/log/temporaneo tracciato; solo `.env.example` (con `OPENAI_API_KEY` vuota); nessuna corrispondenza con pattern di chiavi (il controllo è stato provato con un caso positivo, dopo aver scoperto in precedenza che un controllo "grep vuoto" può essere un falso positivo); unico file > 1 MB il video. Le password di sviluppo (`eaa`) sono i default dichiarati del compose, non segreti.
 - Container Docker e frontend fermati a fine lavoro.
 
-### Passo 7 — *(da definire: lo indica l'utente)*
+### Passo 7 — Pubblicazione su GitHub e README in italiano (completato)
+- Aggiunto il remoto `origin` e fatto il push di `main` (repository **privato**). L'utente ha poi sostituito sul remoto il video con un link cliccabile (`user-attachments`): allineato con `git pull --ff-only`.
+- Creato [`README.it.md`](../README.it.md), traduzione **completa** del README inglese: stessa struttura (10 sezioni, 14 blocchi di codice, 31 righe di tabella), stesso link del video, stessi diagrammi Mermaid con etichette tradotte (sintassi verificata renderizzandoli), comandi equivalenti. In cima a ciascun file il link per cambiare lingua (`🇮🇹 Leggi in Italiano` / `🇬🇧 Read in English`).
+- Controlli automatici eseguiti sulla parità dei due file: struttura, link relativi esistenti, ancore del sommario, comandi `bash`.
+- Se si modifica un README va aggiornato anche l'altro.
+
+### Passo 8 — *(da definire: lo indica l'utente)*
 
 ---
 
