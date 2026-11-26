@@ -1,0 +1,106 @@
+name: enterprise-ai-assistant
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.2-pg18   # PostgreSQL 18 + pgvector 0.8.2
+    container_name: eaa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-eaa}
+      POSTGRES_USER: ${POSTGRES_USER:-eaa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-eaa}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # PG18: il volume va montato su /var/lib/postgresql (non più su .../data)
+      - pgdata:/var/lib/postgresql
+      # eseguito solo al primo avvio, a volume vuoto
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # --- Opzionale: LLM ed embedding in locale. Avvio: docker compose --profile ollama up -d
+  ollama:
+    image: ollama/ollama:latest
+    container_name: eaa-ollama
+    profiles: ["ollama"]
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Scarica i modelli al primo avvio e termina.
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: eaa-ollama-pull
+    profiles: ["ollama"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        ollama pull ${OLLAMA_CHAT_MODEL:-qwen2.5:7b}
+        ollama pull ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+
+  # --- Opzionale: backend Laravel in container (PHP 8.4). Avvio: docker compose --profile laravel up -d
+  # Utile se sul computer non c'è PHP >= 8.3 (richiesto da Laravel 13).
+  backend-laravel:
+    build: ./backend-laravel
+    container_name: eaa-backend-laravel
+    profiles: ["laravel"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: ${POSTGRES_DB:-eaa}
+      DB_USERNAME: ${POSTGRES_USER:-eaa}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-eaa}
+      # Default: il container Ollama del profilo "ollama". Per usare Ollama NATIVO sul Mac (GPU, molto più veloce):
+      #   OLLAMA_BASE_URL=http://host.docker.internal:11434 docker compose --profile laravel up -d
+      OLLAMA_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      PHP_CLI_SERVER_WORKERS: 4
+    volumes:
+      - ./backend-laravel:/var/www/html
+
+  # --- Opzionale: backend Spring Boot (Java 21, Spring AI). Avvio: docker compose --profile springboot up -d
+  # Stesso database e stesso contratto API di Laravel, ma sulla porta 8080. Per usarlo dal frontend Angular
+  # basta scegliere "Spring Boot" nel selettore Backend in alto a destra nella UI.
+  backend-springboot:
+    build: ./backend-springboot
+    container_name: eaa-backend-springboot
+    profiles: ["springboot"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: ${POSTGRES_DB:-eaa}
+      DB_USERNAME: ${POSTGRES_USER:-eaa}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-eaa}
+      OLLAMA_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}   # vedi nota nel servizio Laravel (Ollama nativo)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}                    # solo se si passa a OpenAI (vedi application.yml)
+      AI_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen2.5:7b}
+      AI_EMBEDDING_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+
+volumes:
+  pgdata:
+  ollama:

@@ -1,0 +1,148 @@
+<section
+  class="flex h-full min-h-0 flex-col overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200"
+  aria-labelledby="documents-title"
+>
+  <header class="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+    <h2 id="documents-title" class="text-sm font-semibold text-slate-900">Documenti</h2>
+    <span class="text-xs text-slate-500">{{ store.readyCount() }} indicizzati</span>
+  </header>
+
+  <div class="space-y-3 p-4">
+    <!-- Dropzone: trascina i PDF qui oppure clic/Invio per scegliere dal computer -->
+    <div
+      role="button"
+      tabindex="0"
+      aria-label="Carica PDF: trascina qui i file oppure premi Invio per sceglierli"
+      class="flex cursor-pointer flex-col items-center gap-1 rounded-lg border-2 border-dashed px-4 py-6 text-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+      [class]="dropzoneClass()"
+      (click)="openPicker()"
+      (keydown.enter)="openPicker()"
+      (keydown.space)="$event.preventDefault(); openPicker()"
+      (dragover)="onDragOver($event)"
+      (dragleave)="onDragLeave()"
+      (drop)="onDrop($event)"
+    >
+      <svg class="size-8 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 16V4m0 0 4 4m-4-4L8 8M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+      </svg>
+      <p class="text-sm font-medium text-slate-700">
+        {{ dragging() ? 'Rilascia per caricare' : 'Trascina qui i PDF' }}
+      </p>
+      <p class="text-xs text-slate-500">oppure clicca per sceglierli · max 20 MB</p>
+      <input
+        #picker
+        type="file"
+        accept="application/pdf,.pdf"
+        multiple
+        class="hidden"
+        (change)="onPick($event)"
+      />
+    </div>
+
+    <!-- Caricamenti in corso / appena conclusi -->
+    @if (store.uploads().length > 0) {
+      <ul class="space-y-2" aria-live="polite">
+        @for (upload of store.uploads(); track upload.id) {
+          <li
+            class="flex items-start gap-2 rounded-lg px-3 py-2 text-sm ring-1 ring-inset"
+            [class.bg-slate-50]="upload.status === 'uploading'"
+            [class.ring-slate-200]="upload.status === 'uploading'"
+            [class.bg-emerald-50]="upload.status === 'done'"
+            [class.ring-emerald-200]="upload.status === 'done'"
+            [class.bg-red-50]="upload.status === 'error'"
+            [class.ring-red-200]="upload.status === 'error'"
+          >
+            @switch (upload.status) {
+              @case ('uploading') {
+                <svg class="mt-0.5 size-4 shrink-0 animate-spin text-indigo-600" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4z" />
+                </svg>
+              }
+              @case ('done') {
+                <svg class="mt-0.5 size-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m5 13 4 4L19 7" />
+                </svg>
+              }
+              @case ('error') {
+                <svg class="mt-0.5 size-4 shrink-0 text-red-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v5m0 3h.01M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+                </svg>
+              }
+            }
+            <div class="min-w-0 flex-1">
+              <p class="truncate font-medium text-slate-800">{{ upload.name }}</p>
+              @switch (upload.status) {
+                @case ('uploading') {
+                  <p class="text-xs text-slate-500">Indicizzazione in corso, può richiedere qualche secondo…</p>
+                }
+                @case ('done') {
+                  <p class="text-xs text-emerald-700">Documento indicizzato.</p>
+                }
+                @case ('error') {
+                  <p class="text-xs text-red-700">{{ upload.error }}</p>
+                }
+              }
+            </div>
+            @if (upload.status === 'error') {
+              <button
+                type="button"
+                class="rounded p-0.5 text-slate-400 hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-indigo-500 focus:outline-none"
+                aria-label="Chiudi messaggio"
+                (click)="store.dismiss(upload.id)"
+              >
+                <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <path stroke-linecap="round" d="M6 6l12 12M18 6 6 18" />
+                </svg>
+              </button>
+            }
+          </li>
+        }
+      </ul>
+    }
+  </div>
+
+  <!-- Elenco documenti -->
+  <div class="min-h-0 flex-1 overflow-y-auto border-t border-slate-200">
+    @if (store.loadError(); as error) {
+      <div class="p-4 text-sm text-red-700" role="alert">
+        <p>{{ error }}</p>
+        <button
+          type="button"
+          class="mt-2 rounded-md bg-white px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50"
+          (click)="store.load()"
+        >
+          Riprova
+        </button>
+      </div>
+    } @else if (store.loading() && store.documents().length === 0) {
+      <p class="p-4 text-sm text-slate-500">Caricamento…</p>
+    } @else if (store.documents().length === 0) {
+      <p class="p-4 text-sm text-slate-500">
+        Nessun documento. Carica un PDF (ad esempio una policy rimborsi) per poterlo interrogare.
+      </p>
+    } @else {
+      <ul class="divide-y divide-slate-100">
+        @for (doc of store.documents(); track doc.id) {
+          <li class="px-4 py-3">
+            <div class="flex items-start justify-between gap-2">
+              <p class="min-w-0 truncate text-sm font-medium text-slate-900" [title]="doc.filename">
+                {{ doc.filename }}
+              </p>
+              <app-status-badge [tone]="statusTone(doc.status)">{{ statusLabel(doc.status) }}</app-status-badge>
+            </div>
+            <p class="mt-0.5 text-xs text-slate-500">
+              @if (doc.status === 'READY') {
+                {{ doc.pageCount }} pag. · {{ doc.chunkCount }} frammenti ·
+              }
+              {{ doc.sizeBytes | fileSize }} · {{ doc.createdAt | dateTime }}
+            </p>
+            @if (doc.status === 'FAILED' && doc.errorMessage) {
+              <p class="mt-1 text-xs text-red-700">{{ doc.errorMessage }}</p>
+            }
+          </li>
+        }
+      </ul>
+    }
+  </div>
+</section>

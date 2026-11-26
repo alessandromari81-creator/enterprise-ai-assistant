@@ -1,0 +1,37 @@
+<div class="flex min-h-screen flex-col bg-slate-100 text-slate-800 lg:h-screen">
+  <header class="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-5 py-3">
+    <div class="flex items-center gap-3">
+      <div class="flex size-9 items-center justify-center rounded-lg bg-indigo-600 text-white" aria-hidden="true">
+        <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 3 4 7v5c0 4.4 3.2 7.6 8 9 4.8-1.4 8-4.6 8-9V7l-8-4Z" />
+          <path stroke-linecap="round" stroke-linejoin="round" d="m9 12 2 2 4-4" />
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-base leading-tight font-semibold text-slate-900">Enterprise AI Assistant</h1>
+        <p class="hidden text-xs text-slate-500 sm:block">Documenti aziendali · RAG con fonti · Azioni</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <app-backend-switch />
+      <div class="flex items-center gap-2">
+        <span
+          class="flex size-8 items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700"
+          aria-hidden="true"
+          >{{ user.name.charAt(0) }}</span
+        >
+        <span class="hidden text-sm font-medium text-slate-700 sm:inline">{{ user.name }}</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Dashboard: su schermi grandi 3 colonne affiancate, sotto lg le colonne si impilano -->
+  <main
+    class="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] gap-4 p-4 lg:grid-cols-[21rem_minmax(0,1fr)_27rem] lg:grid-rows-[minmax(0,1fr)]"
+  >
+    <div class="h-[28rem] min-h-0 lg:h-auto"><app-documents-panel class="block h-full" /></div>
+    <div class="h-[36rem] min-h-0 lg:h-auto"><app-chat-panel class="block h-full" /></div>
+    <div class="h-[28rem] min-h-0 lg:h-auto"><app-reimbursements-panel class="block h-full" /></div>
+  </main>
+</div>

@@ -1,0 +1,37 @@
+<div class="flex items-center gap-2">
+  <span class="hidden text-xs font-medium text-slate-500 md:inline" id="backend-label">Backend</span>
+
+  <div
+    role="radiogroup"
+    aria-labelledby="backend-label"
+    aria-label="Backend API"
+    class="inline-flex rounded-lg bg-slate-100 p-0.5 text-xs font-medium"
+    (keydown)="onKeydown($event)"
+  >
+    @for (option of backend.options; track option.id) {
+      <button
+        type="button"
+        role="radio"
+        data-testid="backend-option"
+        class="rounded-md px-2.5 py-1 whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        [class]="backend.selectedId() === option.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'"
+        [attr.aria-checked]="backend.selectedId() === option.id"
+        [attr.tabindex]="backend.selectedId() === option.id ? 0 : -1"
+        [title]="option.apiUrl"
+        (click)="select(option.id)"
+      >
+        {{ option.label }}
+      </button>
+    }
+  </div>
+
+  <span
+    class="hidden items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600 sm:inline-flex"
+    data-testid="backend-host"
+    [title]="backend.apiUrl()"
+  >
+    <span class="size-1.5 rounded-full" [class]="dot().cls" aria-hidden="true"></span>
+    <span>{{ backend.host() }}</span>
+    <span class="sr-only">{{ dot().label }}</span>
+  </span>
+</div>

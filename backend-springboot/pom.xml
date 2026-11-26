@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- Spring Boot 4.2 (ultima versione). Spring AI 2.x richiede Boot 4.x, non esiste per Boot 3. -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.2.0</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>it.portfolio</groupId>
+    <artifactId>eaa-springboot</artifactId>
+    <version>1.0.0</version>
+    <name>enterprise-ai-assistant :: backend-springboot</name>
+    <description>Backend Spring Boot + Spring AI: RAG con fonti e tool calling. Stesso contratto API del backend Laravel.</description>
+
+    <properties>
+        <java.version>21</java.version>
+        <spring-ai.version>2.1.0</spring-ai.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- BOM di Spring AI: fissa la versione di tutti gli artefatti spring-ai-* -->
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- Spring Web (MVC): i @RestController -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+
+        <!-- Spring Data JPA + driver PostgreSQL: documents, reimbursement_requests, chat_messages -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Spring AI: modelli. Entrambi gli starter sono nel classpath; quale è attivo lo decide
+             spring.ai.model.chat / spring.ai.model.embedding in application.yml (default: ollama). -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-ollama</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-openai</artifactId>
+        </dependency>
+
+        <!-- Spring AI: interfaccia VectorStore (implementata su document_chunks) e splitter -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-vector-store</artifactId>
+        </dependency>
+
+        <!-- Spring AI: lettura dei PDF pagina per pagina (PagePdfDocumentReader, basato su Apache PDFBox) -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-pdf-document-reader</artifactId>
+        </dependency>
+
+        <!-- Health check per Docker (GET /actuator/health) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Test -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

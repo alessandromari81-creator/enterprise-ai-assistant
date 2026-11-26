@@ -1,0 +1,135 @@
+# ============================================================================
+# Enterprise AI Assistant — backend Spring Boot
+#
+# Ogni valore ha un default adatto allo sviluppo locale e si può sovrascrivere con una variabile
+# d'ambiente (${NOME:default}). Gli stessi nomi di variabile del backend Laravel (DB_*, OLLAMA_URL,
+# AI_*, RAG_*, CORS_ALLOWED_ORIGINS), così il docker-compose usa un unico set di valori.
+# ============================================================================
+
+server:
+  port: ${SERVER_PORT:8080}
+  tomcat:
+    # Se un upload supera il limite, Tomcat risponde 413 solo se riesce a "scartare" il resto del
+    # corpo. Con il default (2 MB) chiuderebbe la connessione e il client vedrebbe un errore di rete.
+    max-swallow-size: 100MB
+
+spring:
+  application:
+    name: eaa-springboot
+
+  # --- PostgreSQL + pgvector (stesso database di Laravel, docker-compose.yml nella root) ---------
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_DATABASE:eaa}
+    username: ${DB_USERNAME:eaa}
+    password: ${DB_PASSWORD:eaa}
+
+  jpa:
+    hibernate:
+      # MAI create/update: lo schema è di proprietà di db/init/01-init.sql (decisione D1).
+      ddl-auto: none
+    open-in-view: false
+    properties:
+      hibernate.jdbc.time_zone: UTC
+
+  servlet:
+    multipart:
+      max-file-size: 20MB      # limite del contratto
+      max-request-size: 22MB
+
+  # Un LLM locale può impiegare più di 30 s: timeout di lettura delle chiamate HTTP verso il modello.
+  http:
+    clients:
+      read-timeout: ${AI_READ_TIMEOUT:300s}
+
+  ai:
+    # --- Quale provider usare ----------------------------------------------------------------
+    # Entrambi gli starter (Ollama e OpenAI) sono nel classpath. Queste due righe scelgono quale
+    # dei due crea i bean ChatModel / EmbeddingModel.
+    model:
+      chat: ollama
+      embedding: ollama
+      # >>> Per passare a OpenAI: sostituisci "ollama" con "openai" nelle due righe sopra e
+      # >>> decommenta il blocco "OpenAI" più sotto.
+
+      # Lo starter OpenAI offre anche altri tipi di modello (audio, immagini, moderazione...) e, se non
+      # disattivati, l'autoconfigurazione li crea comunque e l'app NON parte senza chiave API
+      # ("At least one credential source must be specified"). Qui non servono: si disattivano.
+      audio:
+        speech: none
+        transcription: none
+      image: none
+      moderation: none
+      decision: none
+
+    # --- Ollama (locale, default) --------------------------------------------------------------
+    ollama:
+      base-url: ${OLLAMA_URL:http://localhost:11434}
+      chat:
+        options:
+          model: ${AI_CHAT_MODEL:qwen2.5:7b}
+          temperature: ${AI_TEMPERATURE:0.1}     # bassa: risposte fedeli ai documenti, non creative
+      embedding:
+        options:
+          model: ${AI_EMBEDDING_MODEL:nomic-embed-text}
+
+    # --- OpenAI / cloud (alternativa, commentato) ---------------------------------------------------
+    # openai:
+    #   api-key: ${OPENAI_API_KEY}
+    #   base-url: https://api.openai.com   # oppure un endpoint compatibile (Azure, gateway, vLLM...)
+    #   chat:
+    #     options:
+    #       model: gpt-4o-mini
+    #       temperature: 0.1
+    #   embedding:
+    #     options:
+    #       model: text-embedding-3-small
+    #       dimensions: 768                # DEVE coincidere con VECTOR(768) nello schema
+
+    # --- Tentativi in caso di errore del provider ---------------------------------------------------
+    # Il default di Spring AI (10 tentativi con attese crescenti) farebbe attendere minuti prima di
+    # un errore. Con Ollama spento si vuole un 502 rapido, come nel backend Laravel.
+    retry:
+      max-attempts: 2
+      backoff:
+        initial-interval: 1s
+        multiplier: 2
+
+    # --- Limiti del tool calling ----------------------------------------------------------------------
+    tools:
+      limits:
+        # Il tool dei rimborsi serve al massimo una volta per richiesta (come max_steps in Laravel).
+        max-calls-per-tool-default: 3
+        max-total-tool-calls: 5
+
+# --- Parametri applicativi (identici al backend Laravel: config/eaa.php, decisione D8) ----------------
+eaa:
+  ai:
+    # DEVE coincidere con VECTOR(n) nello schema. nomic-embed-text = 768.
+    embedding-dimensions: ${AI_EMBEDDING_DIMENSIONS:768}
+    embedding-batch-size: ${AI_EMBEDDING_BATCH_SIZE:32}
+  rag:
+    chunk-size-tokens: ${RAG_CHUNK_SIZE_TOKENS:500}
+    chunk-overlap-tokens: ${RAG_CHUNK_OVERLAP_TOKENS:50}
+    top-k: ${RAG_TOP_K:5}
+    min-score: ${RAG_MIN_SCORE:0.62}        # calibrata su nomic-embed-text reale (decisione D22)
+    history-messages: 10
+    snippet-length: 300
+  upload:
+    max-bytes: 20971520                      # 20 MB
+  reimbursement:
+    max-amount: 10000                        # coerente con il CHECK nello schema SQL
+    currency: EUR
+    default-user: demo-user                  # nessuna autenticazione (decisione D10)
+  cors:
+    # Più origini separate da virgola. Angular in sviluppo: ng serve su :4200.
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+logging:
+  level:
+    it.portfolio.eaa: INFO

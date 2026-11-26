@@ -1,0 +1,303 @@
+openapi: 3.1.0
+info:
+  title: Enterprise AI Assistant API
+  version: 1.0.0
+  description: |
+    Contratto unico implementato in modo identico da `backend-laravel` e `backend-springboot`.
+    Angular dipende solo da questo file.
+
+    Convenzioni
+    - Base path `/api`, JSON UTF-8 in camelCase (le colonne DB restano snake_case).
+    - ID: UUID. Date: ISO-8601 UTC (`2026-11-25T10:15:30Z`).
+    - Importi: stringa decimale con 2 cifre (`"50.00"`), mai float.
+    - Errori: RFC 9457 `application/problem+json` (vedi `Problem`).
+    - Nessuna autenticazione in v1 (utente fisso `demo-user`).
+    - Risposte non in streaming in v1.
+servers:
+  - url: http://localhost:8080
+    description: backend-springboot
+  - url: http://localhost:8000
+    description: backend-laravel
+
+paths:
+  /api/documents:
+    post:
+      operationId: uploadDocument
+      summary: Carica e indicizza un PDF
+      description: |
+        Elaborazione sincrona: estrae il testo per pagina, divide in chunk (~500 token, overlap 50),
+        genera gli embedding e salva su `document_chunks`. Risponde quando `status` è READY o FAILED.
+        Un file con lo stesso SHA-256 è già presente -> 409.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: PDF, max 20 MB, `application/pdf`
+      responses:
+        "201":
+          description: Documento indicizzato
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Document" }
+              example:
+                id: "0b8f3c1e-6a53-4f0e-9d0c-2f6f1a7c9e11"
+                filename: "policy-rimborsi-2026.pdf"
+                sizeBytes: 482113
+                pageCount: 12
+                chunkCount: 37
+                status: READY
+                errorMessage: null
+                createdAt: "2026-11-25T10:15:30Z"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    get:
+      operationId: listDocuments
+      summary: Elenca i documenti (necessario alla UI; non nel set minimo richiesto)
+      responses:
+        "200":
+          description: Lista ordinata per `createdAt` decrescente
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Document" }
+
+  /api/chat:
+    post:
+      operationId: chat
+      summary: Domanda ai documenti (RAG) o richiesta di azione (tool calling)
+      description: |
+        Regole di comportamento (identiche nei due backend)
+        - Risposta basata SOLO sui chunk recuperati (top-5, similarità coseno >= 0.62).
+        - Nessun chunk pertinente -> `answer` dichiara che l'informazione non è nei documenti e `sources` è `[]`.
+        - Ogni affermazione dei documenti è citata nel testo come `[nomefile, p. N]`; `sources` elenca i chunk usati.
+        - Se l'utente chiede di aprire un rimborso, il modello invoca il tool `createReimbursementRequest(amount, description)`;
+          l'esito compare in `actions`. Importo mancante o non valido -> il modello chiede chiarimento, nessuna azione.
+        - `conversationId` assente -> ne viene creato uno nuovo e restituito.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChatRequest" }
+            examples:
+              rag:
+                value:
+                  conversationId: null
+                  message: "Qual è il limite massimo per un rimborso taxi?"
+                  documentIds: null
+              action:
+                value:
+                  conversationId: "5d1c1d2a-8a4b-4e3f-b0a1-77a1d2c0f001"
+                  message: "Apri una richiesta di rimborso per 50€ per la cena col cliente"
+      responses:
+        "200":
+          description: Risposta dell'assistente
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChatResponse" }
+              examples:
+                rag:
+                  value:
+                    conversationId: "5d1c1d2a-8a4b-4e3f-b0a1-77a1d2c0f001"
+                    messageId: "c2f7a0b4-1d5e-4a57-8f2b-3a7d9e1c5b22"
+                    answer: "Il limite per il taxi è di 40 € a corsa [policy-rimborsi-2026.pdf, p. 4]."
+                    sources:
+                      - chunkId: "9a1b6e27-3c4d-4f10-8a55-0d2e7b9c1f33"
+                        documentId: "0b8f3c1e-6a53-4f0e-9d0c-2f6f1a7c9e11"
+                        filename: "policy-rimborsi-2026.pdf"
+                        page: 4
+                        score: 0.83
+                        snippet: "…le corse in taxi sono rimborsabili fino a 40 € per tratta…"
+                    actions: []
+                    createdAt: "2026-11-25T10:20:01Z"
+                action:
+                  value:
+                    conversationId: "5d1c1d2a-8a4b-4e3f-b0a1-77a1d2c0f001"
+                    messageId: "e8b0d4f1-92aa-4c6e-a3b7-1f5c0d7e2a44"
+                    answer: "Ho aperto la richiesta di rimborso di 50,00 € (cena col cliente)."
+                    sources: []
+                    actions:
+                      - type: REIMBURSEMENT_CREATED
+                        reimbursementId: "7c3e9f10-5b2a-4d88-9e61-a0b4c8d2f155"
+                        amount: "50.00"
+                        currency: EUR
+                        description: "Cena col cliente"
+                    createdAt: "2026-11-25T10:21:44Z"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/reimbursements:
+    get:
+      operationId: listReimbursements
+      summary: Elenca le richieste di rimborso
+      parameters:
+        - { name: status, in: query, required: false, schema: { $ref: "#/components/schemas/ReimbursementStatus" } }
+        - { name: page,   in: query, required: false, schema: { type: integer, minimum: 0, default: 0 }, description: "Base 0" }
+        - { name: size,   in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        "200":
+          description: Pagina ordinata per `createdAt` decrescente
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReimbursementPage" }
+              example:
+                items:
+                  - id: "7c3e9f10-5b2a-4d88-9e61-a0b4c8d2f155"
+                    amount: "50.00"
+                    currency: EUR
+                    description: "Cena col cliente"
+                    status: OPEN
+                    requestedBy: "demo-user"
+                    conversationId: "5d1c1d2a-8a4b-4e3f-b0a1-77a1d2c0f001"
+                    createdAt: "2026-11-25T10:21:44Z"
+                page: 0
+                size: 20
+                totalItems: 1
+                totalPages: 1
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+components:
+  schemas:
+    DocumentStatus:
+      type: string
+      enum: [PROCESSING, READY, FAILED]
+    ReimbursementStatus:
+      type: string
+      enum: [OPEN, APPROVED, REJECTED]
+    Document:
+      type: object
+      required: [id, filename, sizeBytes, pageCount, chunkCount, status, errorMessage, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        filename: { type: string, maxLength: 255 }
+        sizeBytes: { type: integer, format: int64 }
+        pageCount: { type: [integer, "null"] }
+        chunkCount: { type: integer }
+        status: { $ref: "#/components/schemas/DocumentStatus" }
+        errorMessage: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+    ChatRequest:
+      type: object
+      required: [message]
+      properties:
+        conversationId: { type: [string, "null"], format: uuid }
+        message: { type: string, minLength: 1, maxLength: 4000 }
+        documentIds:
+          type: [array, "null"]
+          items: { type: string, format: uuid }
+          description: Se valorizzato restringe il retrieval a questi documenti; `null` = tutti i READY.
+    Source:
+      type: object
+      required: [chunkId, documentId, filename, page, score, snippet]
+      properties:
+        chunkId: { type: string, format: uuid }
+        documentId: { type: string, format: uuid }
+        filename: { type: string }
+        page: { type: integer, minimum: 1 }
+        score: { type: number, minimum: 0, maximum: 1 }
+        snippet: { type: string, maxLength: 300 }
+    Action:
+      type: object
+      required: [type, reimbursementId, amount, currency, description]
+      properties:
+        type: { type: string, enum: [REIMBURSEMENT_CREATED] }
+        reimbursementId: { type: string, format: uuid }
+        amount: { type: string, pattern: '^\d{1,8}\.\d{2}$' }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        description: { type: [string, "null"] }
+    ChatResponse:
+      type: object
+      required: [conversationId, messageId, answer, sources, actions, createdAt]
+      properties:
+        conversationId: { type: string, format: uuid }
+        messageId: { type: string, format: uuid }
+        answer: { type: string }
+        sources:
+          type: array
+          items: { $ref: "#/components/schemas/Source" }
+        actions:
+          type: array
+          items: { $ref: "#/components/schemas/Action" }
+        createdAt: { type: string, format: date-time }
+    Reimbursement:
+      type: object
+      required: [id, amount, currency, description, status, requestedBy, conversationId, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        amount: { type: string, pattern: '^\d{1,8}\.\d{2}$' }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        description: { type: [string, "null"] }
+        status: { $ref: "#/components/schemas/ReimbursementStatus" }
+        requestedBy: { type: string }
+        conversationId: { type: [string, "null"], format: uuid }
+        createdAt: { type: string, format: date-time }
+    ReimbursementPage:
+      type: object
+      required: [items, page, size, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Reimbursement" }
+        page: { type: integer }
+        size: { type: integer }
+        totalItems: { type: integer, format: int64 }
+        totalPages: { type: integer }
+    Problem:
+      type: object
+      required: [type, title, status, detail]
+      properties:
+        type: { type: string, description: "URN stabile, es. urn:eaa:error:duplicate-document" }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        errors:
+          type: array
+          description: Solo per 400, un elemento per campo non valido
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field: { type: string }
+              message: { type: string }
+  responses:
+    BadRequest:
+      description: Richiesta non valida (urn:eaa:error:validation)
+      content: { application/problem+json: { schema: { $ref: "#/components/schemas/Problem" } } }
+    NotFound:
+      description: Risorsa inesistente, es. conversationId sconosciuto (urn:eaa:error:not-found)
+      content: { application/problem+json: { schema: { $ref: "#/components/schemas/Problem" } } }
+    Conflict:
+      description: PDF già caricato, stesso SHA-256 (urn:eaa:error:duplicate-document)
+      content: { application/problem+json: { schema: { $ref: "#/components/schemas/Problem" } } }
+    PayloadTooLarge:
+      description: File oltre 20 MB (urn:eaa:error:file-too-large)
+      content: { application/problem+json: { schema: { $ref: "#/components/schemas/Problem" } } }
+    UnsupportedMediaType:
+      description: Non è un PDF (urn:eaa:error:unsupported-media-type)
+      content: { application/problem+json: { schema: { $ref: "#/components/schemas/Problem" } } }
+    Unprocessable:
+      description: PDF illeggibile o senza testo estraibile, es. scansione (urn:eaa:error:unreadable-pdf)
+      content: { application/problem+json: { schema: { $ref: "#/components/schemas/Problem" } } }
+    UpstreamError:
+      description: LLM/embedding non raggiungibile (urn:eaa:error:llm-unavailable)
+      content: { application/problem+json: { schema: { $ref: "#/components/schemas/Problem" } } }
+    ServerError:
+      description: Errore interno (urn:eaa:error:internal)
+      content: { application/problem+json: { schema: { $ref: "#/components/schemas/Problem" } } }

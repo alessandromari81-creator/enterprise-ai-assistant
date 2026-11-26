@@ -1,0 +1,73 @@
+<section
+  class="flex h-full min-h-0 flex-col overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200"
+  aria-labelledby="reimbursements-title"
+>
+  <header class="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+    <div class="flex items-center gap-2">
+      <h2 id="reimbursements-title" class="text-sm font-semibold text-slate-900">Richieste di rimborso</h2>
+      <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+        {{ store.totalItems() }}
+      </span>
+    </div>
+    <button
+      type="button"
+      class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-40"
+      [disabled]="store.loading()"
+      (click)="store.refresh()"
+    >
+      <svg class="size-3.5" [class.animate-spin]="store.loading()" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M5.6 15A8 8 0 0 0 20 12M18.4 9A8 8 0 0 0 4 12" />
+      </svg>
+      Aggiorna
+    </button>
+  </header>
+
+  <div class="min-h-0 flex-1 overflow-auto">
+    @if (store.error(); as error) {
+      <div class="p-4 text-sm text-red-700" role="alert">{{ error }}</div>
+    } @else if (store.loading() && store.items().length === 0) {
+      <p class="p-4 text-sm text-slate-500">Caricamento…</p>
+    } @else if (store.items().length === 0) {
+      <p class="p-4 text-sm text-slate-500">
+        Nessuna richiesta. Prova a scrivere in chat: «Aprimi un rimborso da 40€ per cena».
+      </p>
+    } @else {
+      <table class="w-full text-left text-sm">
+        <caption class="sr-only">Elenco delle richieste di rimborso, dalla più recente</caption>
+        <thead class="sticky top-0 bg-slate-50 text-xs font-medium text-slate-500 uppercase">
+          <tr>
+            <th scope="col" class="px-4 py-2">Data</th>
+            <th scope="col" class="px-2 py-2 text-right">Importo</th>
+            <th scope="col" class="px-2 py-2">Descrizione</th>
+            <th scope="col" class="px-4 py-2">Stato</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          @for (item of store.items(); track item.id) {
+            <tr
+              class="transition-colors duration-700"
+              [class]="store.highlightedIds().has(item.id) ? 'bg-emerald-100' : 'bg-white'"
+              data-testid="reimbursement-row"
+            >
+              <td class="px-4 py-2.5 whitespace-nowrap text-slate-600">{{ item.createdAt | dateTime }}</td>
+              <td class="px-2 py-2.5 text-right font-medium whitespace-nowrap text-slate-900">
+                {{ item.amount | money: item.currency }}
+              </td>
+              <td class="max-w-[9rem] truncate px-2 py-2.5 text-slate-600" [title]="item.description ?? ''">
+                {{ item.description || '—' }}
+              </td>
+              <td class="px-4 py-2.5">
+                <app-status-badge [tone]="statusTone(item.status)">{{ statusLabel(item.status) }}</app-status-badge>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+      @if (store.totalItems() > store.items().length) {
+        <p class="px-4 py-2 text-xs text-slate-500">
+          Mostrate le {{ store.items().length }} più recenti su {{ store.totalItems() }}.
+        </p>
+      }
+    }
+  </div>
+</section>

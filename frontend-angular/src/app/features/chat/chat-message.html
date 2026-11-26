@@ -1,0 +1,64 @@
+<div class="flex" [class.justify-end]="isUser()">
+  <div class="max-w-[88%] min-w-0">
+    <div class="rounded-2xl px-4 py-2.5 text-sm leading-relaxed" [class]="bubbleClass()">
+      <p class="break-words whitespace-pre-wrap">{{ message().text }}</p>
+    </div>
+
+    <!-- Azioni eseguite dall'IA (tool calling) -->
+    @for (action of message().actions; track action.reimbursementId) {
+      <div
+        class="mt-2 flex items-start gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900 ring-1 ring-inset ring-emerald-200"
+        data-testid="action-card"
+      >
+        <svg class="mt-0.5 size-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="m5 13 4 4L19 7" />
+        </svg>
+        <div>
+          <p class="font-medium">
+            Richiesta di rimborso creata: {{ action.amount | money: action.currency }}
+          </p>
+          @if (action.description) {
+            <p class="text-xs text-emerald-800">{{ action.description }}</p>
+          }
+          <p class="text-xs text-emerald-700/80">ID {{ action.reimbursementId.slice(0, 8) }}…</p>
+        </div>
+      </div>
+    }
+
+    <!-- Fonti: nome file + pagina, come badge cliccabili -->
+    @if (message().sources.length > 0) {
+      <div class="mt-2">
+        <div class="flex flex-wrap items-center gap-1.5">
+          <span class="text-xs font-medium text-slate-500">Fonti:</span>
+          @for (source of message().sources; track source.chunkId) {
+            <button
+              type="button"
+              data-testid="source-badge"
+              class="inline-flex max-w-full items-center gap-1 rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-800 ring-1 ring-inset ring-sky-600/20 hover:bg-sky-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+              [attr.aria-expanded]="expandedChunkId() === source.chunkId"
+              [title]="'Pertinenza ' + percent(source.score) + ' · clicca per leggere il frammento'"
+              (click)="toggle(source.chunkId)"
+            >
+              <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M7 3h7l5 5v13H7zM14 3v5h5" />
+              </svg>
+              <span class="truncate">{{ source.filename }} · p. {{ source.page }}</span>
+            </button>
+          }
+        </div>
+
+        @if (expandedSource(); as source) {
+          <blockquote
+            class="mt-2 rounded-lg border-l-4 border-sky-400 bg-sky-50/60 px-3 py-2 text-xs text-slate-700"
+            data-testid="source-snippet"
+          >
+            <p class="break-words whitespace-pre-wrap">{{ source.snippet }}</p>
+            <p class="mt-1 text-[11px] text-slate-500">
+              {{ source.filename }}, pagina {{ source.page }} · pertinenza {{ percent(source.score) }}
+            </p>
+          </blockquote>
+        }
+      </div>
+    }
+  </div>
+</div>

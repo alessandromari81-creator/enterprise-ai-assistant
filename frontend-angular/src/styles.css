@@ -1,0 +1,12 @@
+/* Tailwind CSS v4: un solo import. Le classi utility si usano direttamente nei template. */
+@import 'tailwindcss';
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
