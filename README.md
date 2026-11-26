@@ -1,57 +1,57 @@
-**[🇮🇹 Leggi in Italiano](README.it.md)**
+**[🇬🇧 Read in English](README.en.md)**
 
 # Enterprise AI Assistant
 
 https://github.com/user-attachments/assets/fd6c4670-d545-4ca0-865a-21a9a61aae20
 
-**A multi-backend RAG & agentic-action system.** One Angular 22 frontend talks to **two interchangeable backends** — **Laravel 13 (PHP)** and **Spring Boot 4 + Spring AI 2.1 (Java)** — that implement the *same* API contract on top of the *same* PostgreSQL + pgvector database. Upload a policy PDF, ask questions and get **answers with page-level citations**, or ask the assistant to **take an action** ("open a €40 dinner reimbursement") — safely.
+**Un sistema multi-backend di RAG e azioni agentiche.** Un unico frontend Angular 22 dialoga con **due backend intercambiabili** — **Laravel 13 (PHP)** e **Spring Boot 4 + Spring AI 2.1 (Java)** — che implementano lo *stesso* contratto API sopra lo *stesso* database PostgreSQL + pgvector. Carichi un PDF di policy, fai domande e ottieni **risposte con citazioni a livello di pagina**, oppure chiedi all'assistente di **compiere un'azione** ("apri un rimborso da 40 € per la cena") — in sicurezza.
 
-The point of the project is architectural: the same non-trivial AI problem solved in two mainstream enterprise stacks, held to a single OpenAPI contract, a shared vector index and a shared safety model — so the two can be compared fairly and swapped at runtime from the UI.
+Lo scopo del progetto è architetturale: lo stesso problema di IA non banale risolto in due stack enterprise diffusi, vincolati a un unico contratto OpenAPI, a un indice vettoriale condiviso e a un modello di sicurezza condiviso — così da poterli confrontare in modo equo e scambiarli a runtime dalla UI.
 
 ---
 
-## Table of contents
+## Indice
 
-- [What it does](#what-it-does)
-- [Architecture](#architecture)
-- [Key architectural decisions](#key-architectural-decisions)
+- [Cosa fa](#cosa-fa)
+- [Architettura](#architettura)
+- [Decisioni architetturali chiave](#decisioni-architetturali-chiave)
 - [PHP/Laravel vs Java/Spring Boot](#phplaravel-vs-javaspring-boot)
 - [Quickstart](#quickstart)
-- [Repository layout](#repository-layout)
-- [Quality & verification](#quality--verification)
-- [Known limits & next steps](#known-limits--next-steps)
-- [Documentation](#documentation)
+- [Struttura del repository](#struttura-del-repository)
+- [Qualità e verifica](#qualità-e-verifica)
+- [Limiti noti e prossimi passi](#limiti-noti-e-prossimi-passi)
+- [Documentazione](#documentazione)
 
 ---
 
-## What it does
+## Cosa fa
 
 | | |
 |---|---|
-| **Ingest** | Drag & drop a PDF → text is extracted page by page, split into ~500-token chunks, embedded (768-d) and stored in pgvector. Duplicates are detected by SHA-256 (`409`). |
-| **Ask (RAG)** | Questions are answered *only* from retrieved excerpts, with `[file.pdf, p. N]` citations and clickable source badges. If the documents don't contain the answer, the assistant says so. |
-| **Act (tool calling)** | Two tools. "Open a €40 dinner reimbursement" makes the model call `createReimbursementRequest`; "Mark reimbursement #2 as executed" / "Approve the dinner reimbursement" calls `updateReimbursementStatus` (approved, rejected, executed). Both write to PostgreSQL, and the table in the UI — with a coloured status badge per row (*In attesa, Approvato, Rifiutato, Eseguito*) — refreshes by itself. |
-| **Switch backend live** | A selector in the header flips the whole UI between Laravel (`:8000`) and Spring Boot (`:8080`) at runtime — same data, same index, same conversation. |
+| **Ingestione** | Trascini un PDF → il testo viene estratto pagina per pagina, diviso in chunk da ~500 token, trasformato in embedding (768 dimensioni) e salvato in pgvector. I duplicati si riconoscono con lo SHA-256 (`409`). |
+| **Domande (RAG)** | Le domande trovano risposta *solo* dagli estratti recuperati, con citazioni `[file.pdf, p. N]` e badge delle fonti cliccabili. Se i documenti non contengono la risposta, l'assistente lo dice. |
+| **Azioni (tool calling)** | Due tool. "Apri un rimborso da 40 € per la cena" fa chiamare al modello `createReimbursementRequest`; "Segna come eseguito il rimborso #2" / "Approva il rimborso della cena" chiama `updateReimbursementStatus` (approvato, rifiutato, eseguito). Entrambi scrivono su PostgreSQL e la tabella nella UI — con un badge colorato per stato (*In attesa, Approvato, Rifiutato, Eseguito*) — si aggiorna da sola. |
+| **Cambio backend dal vivo** | Un selettore nell'intestazione sposta tutta la UI tra Laravel (`:8000`) e Spring Boot (`:8080`) a runtime — stessi dati, stesso indice, stessa conversazione. |
 
-Everything runs locally by default (Ollama + `qwen2.5:7b` + `nomic-embed-text`); OpenAI is a configuration switch.
+Di default tutto gira in locale (Ollama + `qwen2.5:7b` + `nomic-embed-text`); OpenAI è un interruttore di configurazione.
 
 ---
 
-## Architecture
+## Architettura
 
 ```mermaid
 flowchart TB
     subgraph Browser
-        UI["Angular 22 SPA - Signals, Tailwind 4<br/>runtime backend switch"]
+        UI["SPA Angular 22 - Signals, Tailwind 4<br/>cambio backend a runtime"]
     end
 
-    subgraph Backends["Interchangeable backends - one OpenAPI contract"]
+    subgraph Backends["Backend intercambiabili - un solo contratto OpenAPI"]
         direction LR
         LAR["Laravel 13<br/>PHP 8.4 · Prism"]
         SPR["Spring Boot 4.2<br/>Java 21 · Spring AI 2.1"]
     end
 
-    subgraph DB["PostgreSQL 18 + pgvector 0.8 - one shared schema"]
+    subgraph DB["PostgreSQL 18 + pgvector 0.8 - un solo schema condiviso"]
         direction LR
         DOCS[("documents")]
         CHUNKS[("document_chunks<br/>vector 768 + HNSW")]
@@ -59,133 +59,133 @@ flowchart TB
         CHAT[("chat_messages")]
     end
 
-    LLM{{"Ollama (local, default): qwen2.5:7b + nomic-embed-text<br/>or OpenAI (cloud)"}}
+    LLM{{"Ollama (locale, predefinito): qwen2.5:7b + nomic-embed-text<br/>oppure OpenAI (cloud)"}}
 
     UI -- "REST /api" --> LAR
     UI -- "REST /api" --> SPR
     LAR --> DB
     SPR --> DB
-    LAR -- "embeddings · chat · tools" --> LLM
-    SPR -- "embeddings · chat · tools" --> LLM
+    LAR -- "embedding · chat · tool" --> LLM
+    SPR -- "embedding · chat · tool" --> LLM
 ```
 
-One chat turn that includes an action, end to end:
+Un turno di chat che include un'azione, dall'inizio alla fine:
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor U as User
+    actor U as Utente
     participant FE as Angular
-    participant BE as Backend (Laravel or Spring)
+    participant BE as Backend (Laravel o Spring)
     participant DB as PostgreSQL + pgvector
     participant LLM as LLM (Ollama / OpenAI)
 
-    U->>FE: drops policy.pdf
+    U->>FE: trascina policy.pdf
     FE->>BE: POST /api/documents
-    BE->>BE: SHA-256 dedup, extract text per page, chunk
-    BE->>LLM: embed chunks (768-d)
-    BE->>DB: ONE transaction: chunks + vectors, document READY
+    BE->>BE: dedup SHA-256, estrazione testo per pagina, chunking
+    BE->>LLM: embedding dei chunk (768 dim.)
+    BE->>DB: UNA transazione: chunk + vettori, documento READY
 
-    U->>FE: "Open a 40 EUR reimbursement for dinner"
+    U->>FE: "Apri un rimborso da 40 EUR per la cena"
     FE->>BE: POST /api/chat
-    BE->>LLM: embed the question
-    BE->>DB: cosine top-5, score >= 0.62
-    BE->>LLM: system prompt + excerpts + tool schema
+    BE->>LLM: embedding della domanda
+    BE->>DB: top-5 per coseno, score >= 0.62
+    BE->>LLM: system prompt + estratti + schema del tool
     LLM-->>BE: tool call createReimbursementRequest(amount=40)
-    Note over BE: Guard 1 - explicit "open/create" intent<br/>Guard 2 - amount written by the user
+    Note over BE: Barriera 1 - intento esplicito "apri/crea"<br/>Barriera 2 - importo scritto dall'utente
     BE->>DB: INSERT reimbursement_requests (OPEN, demo-user)
-    BE->>LLM: tool result
-    LLM-->>BE: final answer
-    BE-->>FE: answer + sources[] + actions[]
-    FE->>BE: GET /api/reimbursements (table refresh)
+    BE->>LLM: esito del tool
+    LLM-->>BE: risposta finale
+    BE-->>FE: risposta + sources[] + actions[]
+    FE->>BE: GET /api/reimbursements (aggiornamento tabella)
 ```
 
 ---
 
-## Key architectural decisions
+## Decisioni architetturali chiave
 
-### 1. One vector index shared by PHP and Java
+### 1. Un solo indice vettoriale condiviso da PHP e Java
 
-The schema lives in **one place**, [`db/init/01-init.sql`](db/init/01-init.sql). Neither backend owns it: Hibernate runs with `ddl-auto: none`, and the Laravel migrations are idempotent (they no-op when the tables exist). A database created before the status feature is upgraded in place by an idempotent migration (`reimbursement_requests.number`, the `#1, #2…` identity, and the `EXECUTED` status) — Laravel runs it with `migrate`, Spring Boot with `spring.sql.init`; your data is kept.
+Lo schema vive in **un unico posto**, [`db/init/01-init.sql`](db/init/01-init.sql). Nessuno dei due backend ne è proprietario: Hibernate gira con `ddl-auto: none` e le migration di Laravel sono idempotenti (non fanno nulla se le tabelle esistono già). Un database creato prima della funzione sugli stati viene aggiornato sul posto da una migrazione idempotente (`reimbursement_requests.number`, l'identità `#1, #2…` e lo stato `EXECUTED`) — Laravel la esegue con `migrate`, Spring Boot con `spring.sql.init`; i dati restano.
 
-Spring AI's stock `PgVectorStore` creates its *own* table, which would have made every PDF indexed by one backend invisible to the other. Instead, `DocumentChunkVectorStore` implements Spring AI's `VectorStore` interface directly on top of the shared `document_chunks` table — so the Java code uses the standard API (`add`, `upsert`, `similaritySearch`, `SearchRequest`, filter expressions) while PHP reads and writes the very same rows.
+Il `PgVectorStore` standard di Spring AI crea una tabella *propria*, e questo avrebbe reso ogni PDF indicizzato da un backend invisibile all'altro. Invece `DocumentChunkVectorStore` implementa direttamente l'interfaccia `VectorStore` di Spring AI sopra la tabella condivisa `document_chunks`: il codice Java usa l'API standard (`add`, `upsert`, `similaritySearch`, `SearchRequest`, espressioni di filtro) mentre PHP legge e scrive le stesse identiche righe.
 
-**Result:** a PDF uploaded through Laravel is answered by Spring Boot with the *same source and the same similarity score* (0.8425 in the reference run), and a conversation started on one backend continues on the other (`chat_messages` is shared too). Retrieval is cosine similarity (`<=>`) on an HNSW index, with pgvector 0.8 iterative scans for filtered queries. Writes are atomic: all embeddings are computed first, then chunks and the `READY` status are committed in one transaction — a document is complete or absent.
+**Risultato:** un PDF caricato tramite Laravel riceve risposta da Spring Boot con la *stessa fonte e lo stesso score di similarità* (0,8425 nella prova di riferimento), e una conversazione iniziata su un backend prosegue sull'altro (anche `chat_messages` è condivisa). Il retrieval usa la similarità coseno (`<=>`) su un indice HNSW, con le scansioni iterative di pgvector 0.8 per le query filtrate. Le scritture sono atomiche: prima si calcolano tutti gli embedding, poi chunk e stato `READY` vengono salvati in un'unica transazione — un documento è completo oppure non c'è.
 
-### 2. Two safety guardrails on tool calling
+### 2. Due barriere di sicurezza sul tool calling
 
-An LLM that can write to a database must not be trusted to decide *when*. While testing against a real 3B-parameter model, it opened a €50 reimbursement in response to a plain question about the dinner limit (copying the number from the documents), and a €200 one in response to *"Can I get €200 reimbursed for a dinner?"*. Prompts alone don't fix that, so the guardrails are **in code, independent of the model**, and identical in both backends:
+A un LLM che può scrivere su un database non si deve lasciare la decisione su *quando* farlo. Collaudando un modello reale da 3 miliardi di parametri, ha aperto un rimborso da 50 € in risposta a una semplice domanda sul limite delle cene (copiando il numero dai documenti) e uno da 200 € in risposta a *"Posso farmi rimborsare 200 € per una cena?"*. I prompt da soli non risolvono il problema, quindi le barriere sono **nel codice, indipendenti dal modello**, e identiche nei due backend:
 
-1. **Explicit-verb guard** — the user's latest message must be an actual *order* with an explicit verb: to create a refund (*open, add, create, insert, register, request, send…* / *apri, aggiungi, crea, inserisci, registra, richiedi, invia…*) or to change the status of an existing one (*mark, approve, reject, execute, update, close…* / *segna, approva, rifiuta, esegui, aggiorna, chiudi…*). Questions, permission questions and hypotheticals (*"Can I get €200 reimbursed?"*, *"What's the status of #2?"*) are never orders. **A phrase that looks like an order but has no verb** (*"allora un rimborso per hotel da 120 euro"*, *"rimborso #2 eseguito"*) executes nothing and doesn't even call the model: the reply tells the user which verbs to use, with an example built from their own message, and the UI shows an amber on-screen warning (`warning` field of the chat response).
-2. **Provenance guard** — what the tool acts on must literally come from the user's own message: the amount for a new refund; the `#number` or description keyword for a status change. For a status change the **new status is decided by the user's words**, not by the model (*approva* → approved, *rifiuta* → rejected, *esegui / segna come eseguito / paga / chiudi* → executed). The model may never take values from the documents or invent them.
+1. **Barriera sul verbo esplicito** — l'ultimo messaggio dell'utente deve essere un vero *ordine* con un verbo esplicito: per creare un rimborso (*open, add, create, insert, register, request, send…* / *apri, aggiungi, crea, inserisci, registra, richiedi, invia…*) oppure per cambiare lo stato di uno esistente (*mark, approve, reject, execute, update, close…* / *segna, approva, rifiuta, esegui, aggiorna, chiudi…*). Le domande, le domande di permesso e le ipotesi (*"Posso farmi rimborsare 200 €?"*, *"A che punto è il rimborso #2?"*) non sono mai ordini. **Una frase che sembra un ordine ma non ha il verbo** (*"allora un rimborso per hotel da 120 euro"*, *"rimborso #2 eseguito"*) non esegue nulla e non interpella nemmeno il modello: la risposta dice all'utente quali verbi usare, con un esempio costruito sul suo messaggio, e la UI mostra un avviso ambra a video (campo `warning` della risposta della chat).
+2. **Barriera sulla provenienza** — ciò su cui agisce il tool deve venire alla lettera dal messaggio dell'utente: l'importo per un nuovo rimborso; il `#numero` o la parola della descrizione per un cambio di stato. Nel cambio di stato il **nuovo stato lo decidono le parole dell'utente**, non il modello (*approva* → approvato, *rifiuta* → rifiutato, *esegui / segna come eseguito / paga / chiudi* → eseguito). Il modello non può mai prendere i valori dai documenti né inventarli.
 
-Status changes also go through business rules in the service: an unknown number, a keyword matching several refunds (*"more refunds match «cena»: #1, #3 — give the number"*), a refund already in that status, or in a final state (*executed* and *rejected* can't be modified) are refused with an explanation and nothing is changed.
+Il cambio di stato passa anche da regole di business nel servizio: un numero inesistente, una parola che corrisponde a più rimborsi (*"Più rimborsi corrispondono a «cena»: #1, #3. Indica il numero"*), un rimborso già in quello stato o in uno stato finale (*eseguito* e *rifiutato* non si modificano più) vengono rifiutati con una spiegazione e non si cambia nulla.
 
-On top of those: a server-side cap (€10,000) enforced in the service **and** by a database `CHECK` constraint, requests always created as `OPEN` (a human approves), every tool outcome returned to the model as plain text, and the model's output rendered in the UI as text only (never `innerHTML`). Citations pointing at documents that were never retrieved are detected and replaced by an honest refusal. Because small models sometimes *narrate* a tool call instead of making it — and then announce a refund that was never created — two more safeguards are in code: a reply that claims success when nothing was saved is replaced by an honest message, and an unambiguous order (a single user-written amount, or a status change with one clear status and a reference) is carried out by the backend itself, through the same guarded service, if the model fails to call the tool. All of this is covered by automated tests and was exercised with a real model.
+Oltre a queste: un tetto lato server (10.000 €) imposto dal servizio **e** da un vincolo `CHECK` del database, richieste create sempre come `OPEN` (l'approvazione è umana), ogni esito del tool restituito al modello come semplice testo e output del modello mostrato nella UI solo come testo (mai `innerHTML`). Le citazioni che puntano a documenti mai recuperati vengono riconosciute e sostituite da un rifiuto onesto. Poiché i piccoli modelli a volte *raccontano* una chiamata al tool invece di farla — e poi annunciano un rimborso mai creato — nel codice ci sono altre due difese: una risposta che dichiara un successo quando non è stato salvato nulla viene sostituita da un messaggio onesto, e un ordine non ambiguo (un solo importo scritto dall'utente, oppure un cambio di stato con uno stato chiaro e un riferimento) viene eseguito dal backend stesso, attraverso lo stesso servizio protetto, se il modello non chiama il tool. Tutto questo è coperto da test automatici ed è stato provato con un modello reale.
 
-### 3. Local-first AI: Ollama, native or in Docker — or OpenAI
+### 3. IA local-first: Ollama, nativo o in Docker — oppure OpenAI
 
-**Ollama (default).** Nothing leaves your machine. `docker compose --profile ollama up` runs Ollama in a container and pulls the models. *Docker Desktop on macOS runs containers CPU-only*, so for speed run Ollama **natively** on the Mac (it uses the Apple GPU) and point the containers at it:
+**Ollama (predefinito).** Nulla esce dal tuo computer. `docker compose --profile ollama up` avvia Ollama in un container e scarica i modelli. *Docker Desktop su macOS esegue i container solo su CPU*, quindi per la velocità conviene eseguire Ollama **in modo nativo** sul Mac (usa la GPU Apple) e puntare i container verso di lui:
 
 ```bash
-brew install ollama            # or install the Ollama app
+brew install ollama            # oppure installa l'app Ollama
 ollama pull qwen2.5:7b && ollama pull nomic-embed-text
 OLLAMA_BASE_URL=http://host.docker.internal:11434 docker compose --profile laravel --profile springboot up -d --build
 ```
 
-(Don't pass `--profile ollama` in that case.) In the reference runs on CPU-only Docker, answers took roughly 7–200 s depending on prompt size.
+(In questo caso non passare `--profile ollama`.) Nelle prove di riferimento con Docker solo CPU, le risposte hanno richiesto da circa 7 a 200 s a seconda della dimensione del prompt.
 
-**OpenAI / cloud.** Embeddings are requested at 768 dimensions so the same schema works.
-- *Laravel:* in `backend-laravel/.env` set `AI_PROVIDER=openai`, `OPENAI_API_KEY`, `AI_CHAT_MODEL=gpt-4o-mini`, `AI_EMBEDDING_MODEL=text-embedding-3-small`.
-- *Spring Boot:* in `application.yml` switch `spring.ai.model.chat` / `.embedding` from `ollama` to `openai` and uncomment the `openai` block (a commented template is included), then `export OPENAI_API_KEY=...` and rebuild with `--build`.
+**OpenAI / cloud.** Gli embedding vengono richiesti a 768 dimensioni, così lo stesso schema funziona.
+- *Laravel:* in `backend-laravel/.env` imposta `AI_PROVIDER=openai`, `OPENAI_API_KEY`, `AI_CHAT_MODEL=gpt-4o-mini`, `AI_EMBEDDING_MODEL=text-embedding-3-small`.
+- *Spring Boot:* in `application.yml` cambia `spring.ai.model.chat` / `.embedding` da `ollama` a `openai` e decommenta il blocco `openai` (è incluso un modello commentato), poi `export OPENAI_API_KEY=...` e ricostruisci con `--build`.
 
-### Other decisions worth a look
+### Altre decisioni da guardare
 
-| Decision | Why |
+| Decisione | Perché |
 |---|---|
-| **OpenAPI contract first** ([`docs/api/openapi.yaml`](docs/api/openapi.yaml)), RFC 9457 `problem+json` errors with stable `urn:eaa:error:*` types | The frontend depends on the contract, not on a backend. 15 API responses and 6 real upload scenarios were compared side by side across the two backends: identical. |
-| **Identical RAG behaviour** — same prompt file (a test fails if they diverge), top-5, similarity ≥ 0.62, 500-token chunks, same refusal sentence | Answers are comparable across stacks. The 0.62 threshold was *calibrated on real embeddings* (relevant 0.64–0.84, off-topic 0.53–0.61); the first guess of 0.70 rejected legitimate questions. |
-| **Money as decimal strings** (`"50.00"`), dates as ISO-8601 UTC without fractions | No float rounding, no per-backend formatting drift in the UI. |
-| **Frontend state in Signals stores**, zoneless, stale-response guards on backend switch | Components stay thin; switching backends mid-request can't show the wrong backend's data. |
-| **Tests run on real PostgreSQL + pgvector**; the LLM is faked by a real local HTTP server | SQLite has no `vector` type; faking at the HTTP edge still exercises real serialization, tool calling and error paths. Test suites refuse to run unless the DB name ends in `_test`. |
+| **Contratto OpenAPI per primo** ([`docs/api/openapi.yaml`](docs/api/openapi.yaml)), errori RFC 9457 `problem+json` con tipi stabili `urn:eaa:error:*` | Il frontend dipende dal contratto, non da un backend. 15 risposte API e 6 scenari di upload reali sono stati confrontati fianco a fianco tra i due backend: identici. |
+| **Comportamento RAG identico** — stesso file di prompt (un test fallisce se divergono), top-5, similarità ≥ 0,62, chunk da 500 token, stessa frase di rifiuto | Le risposte sono confrontabili tra gli stack. La soglia 0,62 è stata *calibrata su embedding reali* (pertinenti 0,64–0,84, fuori tema 0,53–0,61); il primo tentativo di 0,70 scartava domande legittime. |
+| **Denaro come stringhe decimali** (`"50.00"`), date in ISO-8601 UTC senza frazioni | Niente arrotondamenti in virgola mobile, niente differenze di formato tra backend nella UI. |
+| **Stato del frontend in store a Signals**, zoneless, protezione dalle risposte superate al cambio backend | I componenti restano sottili; cambiare backend durante una richiesta non può mostrare i dati del backend sbagliato. |
+| **I test girano su PostgreSQL + pgvector reali**; l'LLM è simulato da un vero server HTTP locale | SQLite non ha il tipo `vector`; simulare al confine HTTP esercita comunque serializzazione, tool calling e percorsi d'errore reali. Le suite rifiutano di partire se il nome del DB non termina con `_test`. |
 
 ---
 
 ## PHP/Laravel vs Java/Spring Boot
 
-Same contract, same behaviour, same database — different idioms. Sizes are measured; opinions are marked.
+Stesso contratto, stesso comportamento, stesso database — idiomi diversi. Le dimensioni sono misurate; le opinioni sono indicate come tali.
 
-| Concern | **Laravel 13** (`backend-laravel`) | **Spring Boot 4.2** (`backend-springboot`) |
+| Aspetto | **Laravel 13** (`backend-laravel`) | **Spring Boot 4.2** (`backend-springboot`) |
 |---|---|---|
-| Runtime | PHP 8.4 (needs ≥ 8.3) | Java 21, embedded Tomcat |
-| AI library | **Prism** 0.103 (`Prism::text()`, `Prism::embeddings()`) | **Spring AI** 2.1 (`ChatClient`, `EmbeddingModel`) |
-| PDF → text | `smalot/pdfparser` 2.13, page by page | `PagePdfDocumentReader` (Apache PDFBox 3), page by page |
-| Chunking | Own splitter: ~2000 chars ≈ 500 tokens (estimated), 200-char overlap, sentence-aware cuts | `TokenTextSplitter`: **real tokens** (JTokkit), 500 / overlap 50 — measured 476–493 tokens per chunk |
-| Vector access | Raw SQL via `DB::select` + `pgvector/pgvector` types | `VectorStore` **interface implemented** on the shared table (`JdbcClient`), Spring AI filter expressions |
-| Tool definition | `Tool::as()->for()->using(closure)`, per-request state captured by the closure | `@Bean @Description BiFunction` wrapped in `FunctionToolCallback`; per-request state via `ToolContext` |
-| Persistence | Eloquent (UUIDv7, enum casts, `decimal:2`) | JPA / Hibernate 7.4 (UUIDv7 generator) for documents & refunds; `JdbcClient` for JSONB chat rows |
-| Validation & errors | `FormRequest` + exception renderers in `bootstrap/app.php` | Manual validation in controllers + `@RestControllerAdvice` |
-| Config | `.env` + `config/eaa.php` | `application.yml` + `@ConfigurationProperties` records |
-| Provider switch | `AI_PROVIDER` in `.env` | `spring.ai.model.*` in `application.yml` (both starters on classpath, unused model types disabled) |
-| Schema | Idempotent migrations (+ shared init SQL) | Shared init SQL, `ddl-auto: none`; one small idempotent upgrade script (`spring.sql.init`) |
-| Application code | ≈ 2.1 k lines (comments included) | ≈ 2.1 k lines (comments included) |
-| Automated tests | **214** (PHPUnit, 1 478 assertions) | **97** (JUnit 5 + MockMvc) |
-| Container image | 826 MB (dev image, bind-mounted source) | 803 MB (multi-stage, fat jar); app starts in ~4 s |
-| Gotchas hit | `artisan serve` ignores the container's env vars → use `php -S`; PHP warnings in the response body corrupt JSON → `display_errors=Off` | Spring AI 2.x dropped `toolNames()`; both starters on the classpath need unused model types set to `none` or the app won't boot without an API key; Tomcat needs `max-swallow-size` to return `413` on large uploads |
-| Honest take | Quickest to iterate; the AI part is a thin, readable layer | More ceremony, but the abstractions (`VectorStore`, tool callbacks, real tokenizer) are first-class and swappable |
+| Runtime | PHP 8.4 (serve ≥ 8.3) | Java 21, Tomcat embedded |
+| Libreria di IA | **Prism** 0.103 (`Prism::text()`, `Prism::embeddings()`) | **Spring AI** 2.1 (`ChatClient`, `EmbeddingModel`) |
+| PDF → testo | `smalot/pdfparser` 2.13, pagina per pagina | `PagePdfDocumentReader` (Apache PDFBox 3), pagina per pagina |
+| Chunking | Splitter proprio: ~2000 caratteri ≈ 500 token (stimati), 200 caratteri di overlap, tagli sensibili alle frasi | `TokenTextSplitter`: **token reali** (JTokkit), 500 / overlap 50 — misurati 476–493 token per chunk |
+| Accesso ai vettori | SQL diretto via `DB::select` + tipi `pgvector/pgvector` | Interfaccia `VectorStore` **implementata** sulla tabella condivisa (`JdbcClient`), espressioni di filtro di Spring AI |
+| Definizione del tool | `Tool::as()->for()->using(closure)`, stato della richiesta catturato dalla closure | `@Bean @Description BiFunction` incapsulata in `FunctionToolCallback`; stato della richiesta via `ToolContext` |
+| Persistenza | Eloquent (UUIDv7, cast degli enum, `decimal:2`) | JPA / Hibernate 7.4 (generatore UUIDv7) per documenti e rimborsi; `JdbcClient` per le righe JSONB della chat |
+| Validazione ed errori | `FormRequest` + renderer delle eccezioni in `bootstrap/app.php` | Validazione manuale nei controller + `@RestControllerAdvice` |
+| Configurazione | `.env` + `config/eaa.php` | `application.yml` + record `@ConfigurationProperties` |
+| Cambio provider | `AI_PROVIDER` in `.env` | `spring.ai.model.*` in `application.yml` (entrambi gli starter nel classpath, tipi di modello inutilizzati disattivati) |
+| Schema | Migration idempotenti (+ SQL di init condiviso) | SQL di init condiviso, `ddl-auto: none`; un piccolo script idempotente di aggiornamento (`spring.sql.init`) |
+| Codice applicativo | ≈ 2,1 k righe (commenti inclusi) | ≈ 2,1 k righe (commenti inclusi) |
+| Test automatici | **214** (PHPUnit, 1.478 asserzioni) | **97** (JUnit 5 + MockMvc) |
+| Immagine container | 826 MB (immagine di sviluppo, sorgenti montati) | 803 MB (multi-stage, fat jar); l'app parte in ~4 s |
+| Trappole incontrate | `artisan serve` ignora le variabili d'ambiente del container → usare `php -S`; i warning PHP nel corpo della risposta rovinano il JSON → `display_errors=Off` | Spring AI 2.x ha eliminato `toolNames()`; con entrambi gli starter nel classpath i tipi di modello inutilizzati vanno messi a `none`, altrimenti l'app non parte senza chiave API; Tomcat richiede `max-swallow-size` per rispondere `413` agli upload grandi |
+| Giudizio onesto | Il più rapido per iterare; la parte di IA è uno strato sottile e leggibile | Più cerimonia, ma le astrazioni (`VectorStore`, tool callback, tokenizzatore reale) sono di prima classe e sostituibili |
 
 ---
 
 ## Quickstart
 
-**Prerequisites:** Docker (with ~8 GB RAM available to it for the 7B model), Node ≥ 22.22 and npm. Nothing else — PHP and Java run in containers.
+**Prerequisiti:** Docker (con ~8 GB di RAM a disposizione per il modello da 7B), Node ≥ 22.22 e npm. Nient'altro — PHP e Java girano nei container.
 
 ```bash
-# 1. Infrastructure: PostgreSQL+pgvector, Ollama (pulls ~5 GB of models once), and both backends
+# 1. Infrastruttura: PostgreSQL+pgvector, Ollama (scarica ~5 GB di modelli una sola volta) e i due backend
 docker compose --profile ollama --profile laravel --profile springboot up -d --build
-docker compose logs -f ollama-pull          # wait for "success" twice, then Ctrl-C
+docker compose logs -f ollama-pull          # attendi "success" due volte, poi Ctrl-C
 
-# 2. Check both backends are up
+# 2. Verifica che i due backend siano attivi
 curl -s localhost:8000/up        >/dev/null && echo "Laravel OK"      # http://localhost:8000
 curl -s localhost:8080/actuator/health      # {"status":"UP",...}    # http://localhost:8080
 
@@ -195,83 +195,83 @@ npm install
 npm start                        # http://localhost:4200
 ```
 
-Open **http://localhost:4200**, drop a PDF, and use the suggestion chips. Flip **Laravel ⇄ Spring Boot** in the header at any time. The sample file [`backend-laravel/tests/Fixtures/policy_rimborsi.pdf`](backend-laravel/tests/Fixtures/policy_rimborsi.pdf) (dinner limit €50, hotel limit €150) works with the built-in chips.
+Apri **http://localhost:4200**, trascina un PDF e usa i chip dei suggerimenti. Passa da **Laravel ⇄ Spring Boot** nell'intestazione quando vuoi. Il file di esempio [`backend-laravel/tests/Fixtures/policy_rimborsi.pdf`](backend-laravel/tests/Fixtures/policy_rimborsi.pdf) (limite cena 50 €, limite hotel 150 €) funziona con i chip integrati.
 
-Only one backend? Use just `--profile laravel` **or** `--profile springboot`. Stop everything with `docker compose --profile ollama --profile laravel --profile springboot down` (add `-v` to also delete the database).
+Ti serve un solo backend? Usa solo `--profile laravel` **oppure** `--profile springboot`. Ferma tutto con `docker compose --profile ollama --profile laravel --profile springboot down` (aggiungi `-v` per cancellare anche il database).
 
-**Run the tests**
+**Eseguire i test**
 
 ```bash
 docker compose up -d postgres
-docker compose exec postgres psql -U eaa -d eaa -c 'CREATE DATABASE eaa_test'          # once, for Laravel
-docker compose run --rm -e RUN_MIGRATIONS=false backend-laravel php artisan test      # 214 tests
-(cd backend-springboot && ./mvnw test)                                                 # 97 tests (creates its own DB)
-(cd frontend-angular && npm test)                                                      # 69 tests
+docker compose exec postgres psql -U eaa -d eaa -c 'CREATE DATABASE eaa_test'          # una volta, per Laravel
+docker compose run --rm -e RUN_MIGRATIONS=false backend-laravel php artisan test      # 214 test
+(cd backend-springboot && ./mvnw test)                                                 # 97 test (crea il proprio DB)
+(cd frontend-angular && npm test)                                                      # 69 test
 ```
 
-**Before your first commit — make sure no secrets, dependencies or temp files are tracked**
+**Prima del primo commit — assicurati che nessun segreto, dipendenza o file temporaneo sia tracciato**
 
 ```bash
 git init && git add -A
 
-# 1. Nothing sensitive may be tracked (prints the OK line when the list is empty)
+# 1. Nulla di sensibile deve essere tracciato (stampa la riga OK quando l'elenco è vuoto)
 git ls-files | grep -E '(^|/)\.env($|\.)|node_modules/|(^|/)vendor/|(^|/)target/|\.log$' | grep -v '\.env\.example$' \
-  && echo "WARNING: review the files listed above" \
-  || echo "OK: no secrets, dependencies or logs are tracked"
+  && echo "ATTENZIONE: controlla i file elencati sopra" \
+  || echo "OK: nessun segreto, dipendenza o log è tracciato"
 
-# 2. Only the template is versioned, the real .env stays local
-git ls-files | grep '\.env'                  # -> backend-laravel/.env.example   (and nothing else)
+# 2. Si versiona solo il modello, il vero .env resta in locale
+git ls-files | grep '\.env'                  # -> backend-laravel/.env.example   (e nient'altro)
 
-# 3. See what is being ignored (you should find the .env, vendor/, node_modules/, target/, dist/...)
+# 3. Guarda cosa viene ignorato (dovresti trovare .env, vendor/, node_modules/, target/, dist/...)
 git status --ignored --short | grep '^!!'
 ```
 
-The root [`.gitignore`](.gitignore) blocks `.env*` (except `.env.example`), key files, dependency folders, build output, logs, test artefacts and OS/editor files; each sub-project also keeps its own.
+Il [`.gitignore`](.gitignore) della radice blocca `.env*` (tranne `.env.example`), file di chiavi, cartelle delle dipendenze, output di build, log, artefatti dei test e file di sistema/editor; anche ogni sottoprogetto mantiene il proprio.
 
 ---
 
-## Repository layout
+## Struttura del repository
 
 ```
-├── docker-compose.yml          PostgreSQL+pgvector · Ollama · backends (profiles: ollama, laravel, springboot)
-├── db/init/01-init.sql         THE schema (single source of truth for both backends)
+├── docker-compose.yml          PostgreSQL+pgvector · Ollama · backend (profili: ollama, laravel, springboot)
+├── db/init/01-init.sql         LO schema (unica fonte di verità per entrambi i backend)
 ├── docs/
-│   ├── api/openapi.yaml        The API contract both backends implement
-│   └── PROJECT_LOG.md          Engineering log: every decision, trade-off and bug found (in Italian)
-├── frontend-angular/           Angular 22 · standalone components · Signals · Tailwind 4
+│   ├── api/openapi.yaml        Il contratto API implementato da entrambi i backend
+│   └── PROJECT_LOG.md          Diario di progetto: ogni decisione, compromesso e bug trovato (in italiano)
+├── frontend-angular/           Angular 22 · componenti standalone · Signals · Tailwind 4
 ├── backend-laravel/            Laravel 13 · Prism · pgvector
 └── backend-springboot/         Spring Boot 4.2 · Spring AI 2.1 · Java 21
 ```
 
 ---
 
-## Quality & verification
+## Qualità e verifica
 
-What was actually run (not just written):
+Cosa è stato davvero eseguito (non solo scritto):
 
-- **380 automated tests** across the three apps (214 + 97 + 69) — real PostgreSQL + pgvector, faked LLM.
-- **Live runs against a real local model** (`qwen2.5:7b`): ingestion, cited answers, tool calling, and the failure modes above — which is how the guardrails and the similarity threshold were found.
-- **Cross-backend parity checks:** 15 API responses (data + every validation/404/405 error) and 6 real upload cases (no file, `.txt`, renamed executable, corrupt PDF, 21 MB, 50 MB) compared between `:8000` and `:8080` — identical.
-- **Real-browser end-to-end** (Playwright + Chromium, run manually, not committed): drag & drop, loading indicator, source badges, table auto-refresh, runtime backend switch with `localStorage` persistence, error states, responsive layout down to 360 px. Run against both backends.
+- **380 test automatici** nelle tre app (214 + 97 + 69) — PostgreSQL + pgvector reali, LLM simulato.
+- **Prove dal vivo con un modello locale reale** (`qwen2.5:7b`): ingestione, risposte con citazioni, tool calling e i casi di fallimento descritti sopra — ed è così che sono state trovate le barriere e la soglia di similarità.
+- **Controlli di parità tra i backend:** 15 risposte API (dati + ogni errore di validazione/404/405) e 6 casi di upload reali (nessun file, `.txt`, eseguibile rinominato, PDF corrotto, 21 MB, 50 MB) confrontati tra `:8000` e `:8080` — identici.
+- **End-to-end in un browser reale** (Playwright + Chromium, eseguito a mano, non incluso nel repository): drag & drop, indicatore di caricamento, badge delle fonti, aggiornamento automatico della tabella, cambio backend a runtime con persistenza in `localStorage`, stati d'errore, layout responsive fino a 360 px. Eseguito su entrambi i backend.
 
-Not verified: **OpenAI** (configuration is in place; no key was used), **native Ollama on macOS** (the container→host network path was verified with a stand-in listener; Ollama itself isn't installed on the test machine), and any real-world document corpus beyond the sample PDFs.
-
----
-
-## Known limits & next steps
-
-This is a reference architecture, not a hardened product. Deliberately out of scope: **authentication** (everything runs as `demo-user`), **OCR** for scanned PDFs (→ `422`), **asynchronous ingestion** (indexing is synchronous), **streaming** responses. Behavioural notes: small local models are non-deterministic (the guardrails make wrong actions impossible, not wrong prose); a retrieval threshold tuned on two sample pages should be re-tuned on a real corpus; very short queries can score under the threshold.
-
-Natural next steps: auth (`requested_by` and `user_id` are already modelled), a job queue for ingestion, SSE streaming, an OCR path, a committed parity test between the two backends, and an eval set for retrieval quality.
+Non verificati: **OpenAI** (la configurazione è pronta; non è stata usata nessuna chiave), **Ollama nativo su macOS** (il percorso di rete container→host è stato verificato con un servizio di prova; Ollama non è installato sulla macchina di test) e qualsiasi corpus di documenti reali oltre ai PDF di esempio.
 
 ---
 
-## Documentation
+## Limiti noti e prossimi passi
 
-- [`docs/PROJECT_LOG.md`](docs/PROJECT_LOG.md) — the full engineering log: 40+ numbered decisions with rationale, per-component code guides, and every defect found by running the system for real (Italian).
-- [`docs/api/openapi.yaml`](docs/api/openapi.yaml) — the API contract.
-- Per-app READMEs: [`frontend-angular`](frontend-angular/README.md) · [`backend-laravel`](backend-laravel/README.md) · [`backend-springboot`](backend-springboot/README.md).
+Questa è un'architettura di riferimento, non un prodotto rinforzato. Volutamente fuori ambito: **autenticazione** (tutto gira come `demo-user`), **OCR** per i PDF scansionati (→ `422`), **ingestione asincrona** (l'indicizzazione è sincrona) e risposte in **streaming**. Note sul comportamento: i piccoli modelli locali non sono deterministici (le barriere rendono impossibili le azioni sbagliate, non la prosa sbagliata); una soglia di retrieval tarata su due pagine di esempio va ritarata su un corpus reale; le query molto brevi possono restare sotto soglia.
+
+Prossimi passi naturali: autenticazione (`requested_by` e `user_id` sono già modellati), una coda di job per l'ingestione, streaming SSE, un percorso OCR, un test di parità tra i due backend incluso nel repository e un set di valutazione per la qualità del retrieval.
 
 ---
 
-© All rights reserved. This repository is provided for viewing and evaluation only; no open-source license is granted.
+## Documentazione
+
+- [`docs/PROJECT_LOG.md`](docs/PROJECT_LOG.md) — il diario di progetto completo: oltre 40 decisioni numerate con motivazioni, guide al codice per componente e ogni difetto trovato eseguendo davvero il sistema (in italiano).
+- [`docs/api/openapi.yaml`](docs/api/openapi.yaml) — il contratto API.
+- README delle singole app: [`frontend-angular`](frontend-angular/README.md) · [`backend-laravel`](backend-laravel/README.md) · [`backend-springboot`](backend-springboot/README.md).
+
+---
+
+© Tutti i diritti riservati. Questo repository è fornito solo per consultazione e valutazione; non viene concessa alcuna licenza open source.

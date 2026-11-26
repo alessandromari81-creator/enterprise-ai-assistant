@@ -580,7 +580,14 @@ Per usarlo dal frontend: scegliere **Spring Boot** nel selettore Backend dell'in
 - **Nel video si vedono dati dell'utente**: il documento "Politica Rimborso Spese.pdf" e il rimborso #15. Non sono stati modificati.
 - **Il README** contiene il video come link `user-attachments` di GitHub (Passo 6): sostituire `docs/demo.mp4` nel repository **non** aggiorna il player; va ricaricato il nuovo video nell'editor del README su github.com.
 
-### Passo 12 — *(da definire: lo indica l'utente)*
+### Passo 12 — README in italiano come predefinito e video con didascalie in italiano
+
+- **Richiesta dell'utente**: l'utente parla italiano, quindi la lingua principale deve essere l'italiano (README e video), con l'inglese come alternativa.
+- **README**: `README.md` ora è la versione **italiana** (quella mostrata da GitHub) e l'inglese è in **`README.en.md`**; i link per cambiare lingua in cima ai due file sono stati aggiornati (`🇬🇧 Read in English` → `README.en.md`, `🇮🇹 Leggi in Italiano` → `README.md`). Cambia la regola precedente (EN = `README.md`, IT = `README.it.md`), che resta valida come "i due file vanno tenuti allineati".
+- **Video**: le didascalie erano in inglese e sono scritte dentro l'immagine, quindi ho **registrato di nuovo** con le didascalie in italiano (stesso copione e stesso metodo del Passo 11; attese compresse a 3 s; ~56 s, 0,74 MB). Fotogrammi controllati a vista. Stessi accorgimenti: nessuna cancellazione di dati dell'utente, timeout del modello alzato solo per la registrazione e poi ripristinato, riga di prova (#18) eliminata riconoscendola dalla conversazione di origine.
+- **Resta da fare a mano**: ricaricare il nuovo `docs/demo.mp4` nell'editor del README su github.com (il player usa un link `user-attachments`).
+
+### Passo 13 — *(da definire: lo indica l'utente)*
 
 ---
 
