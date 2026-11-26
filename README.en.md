@@ -8,6 +8,8 @@ https://github.com/user-attachments/assets/fd6c4670-d545-4ca0-865a-21a9a61aae20
 
 The point of the project is architectural: the same non-trivial AI problem solved in two mainstream enterprise stacks, held to a single OpenAPI contract, a shared vector index and a shared safety model — so the two can be compared fairly and swapped at runtime from the UI.
 
+**How it was built.** This project was developed with the assistance of Claude Code (Anthropic). Requirements, architecture decisions, safety rules and verification of the results are the author's; every decision is documented in [`docs/PROJECT_LOG.md`](docs/PROJECT_LOG.md).
+
 ---
 
 ## Table of contents

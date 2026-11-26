@@ -8,6 +8,8 @@
 
 Lo scopo del progetto è architetturale: lo stesso problema di IA non banale risolto in due stack enterprise diffusi, vincolati a un unico contratto OpenAPI, a un indice vettoriale condiviso e a un modello di sicurezza condiviso — così da poterli confrontare in modo equo e scambiarli a runtime dalla UI.
 
+**Come è stato sviluppato.** Il progetto è stato realizzato con l'assistenza di Claude Code (Anthropic). Requisiti, scelte di architettura, regole di sicurezza e verifica dei risultati sono a cura dell'autore; ogni decisione è documentata in [`docs/PROJECT_LOG.md`](docs/PROJECT_LOG.md).
+
 ---
 
 ## Indice

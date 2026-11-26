@@ -587,7 +587,13 @@ Per usarlo dal frontend: scegliere **Spring Boot** nel selettore Backend dell'in
 - **Video**: le didascalie erano in inglese e sono scritte dentro l'immagine, quindi ho **registrato di nuovo** con le didascalie in italiano (stesso copione e stesso metodo del Passo 11; attese compresse a 3 s; ~56 s, 0,74 MB). Fotogrammi controllati a vista. Stessi accorgimenti: nessuna cancellazione di dati dell'utente, timeout del modello alzato solo per la registrazione e poi ripristinato, riga di prova (#18) eliminata riconoscendola dalla conversazione di origine.
 - **Resta da fare a mano**: ricaricare il nuovo `docs/demo.mp4` nell'editor del README su github.com (il player usa un link `user-attachments`).
 
-### Passo 13 — *(da definire: lo indica l'utente)*
+### Passo 13 — Dichiarazione dell'uso di Claude Code nei README
+
+- **Richiesta dell'utente**: dopo aver scritto "sviluppato con Claude" nel proprio CV, ha chiesto se andasse scritto anche nel README; concordato di sì, perché CV e repository devono dire la stessa cosa.
+- Aggiunto a `README.md` (italiano) e `README.en.md` (inglese) un paragrafo "Come è stato sviluppato / How it was built": sviluppo con l'assistenza di Claude Code; requisiti, scelte di architettura, regole di sicurezza e verifica a cura dell'autore; rimando a questo diario. Testo approvato dall'utente.
+- Il repository risulta ora **pubblico** (verificato: accesso anonimo HTTP 200).
+
+### Passo 14 — *(da definire: lo indica l'utente)*
 
 ---
 
