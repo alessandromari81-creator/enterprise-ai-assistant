@@ -30,7 +30,7 @@ Lo scopo del progetto è architetturale: lo stesso problema di IA non banale ris
 |---|---|
 | **Ingestione** | Trascini un PDF → il testo viene estratto pagina per pagina, diviso in chunk da ~500 token, trasformato in embedding (768 dimensioni) e salvato in pgvector. I duplicati si riconoscono con lo SHA-256 (`409`). |
 | **Domande (RAG)** | Le domande trovano risposta *solo* dagli estratti recuperati, con citazioni `[file.pdf, p. N]` e badge delle fonti cliccabili. Se i documenti non contengono la risposta, l'assistente lo dice. |
-| **Azioni (tool calling)** | "Apri un rimborso da 40 € per la cena" fa chiamare al modello il tool `createReimbursementRequest`, che scrive su PostgreSQL. La tabella dei rimborsi nella UI si aggiorna da sola. |
+| **Azioni (tool calling)** | Due tool. "Apri un rimborso da 40 € per la cena" fa chiamare al modello `createReimbursementRequest`; "Segna come eseguito il rimborso #2" / "Approva il rimborso della cena" chiama `updateReimbursementStatus` (approvato, rifiutato, eseguito). Entrambi scrivono su PostgreSQL e la tabella nella UI — con un badge colorato per stato (*In attesa, Approvato, Rifiutato, Eseguito*) — si aggiorna da sola. |
 | **Cambio backend dal vivo** | Un selettore nell'intestazione sposta tutta la UI tra Laravel (`:8000`) e Spring Boot (`:8080`) a runtime — stessi dati, stesso indice, stessa conversazione. |
 
 Di default tutto gira in locale (Ollama + `qwen2.5:7b` + `nomic-embed-text`); OpenAI è un interruttore di configurazione.
@@ -106,7 +106,7 @@ sequenceDiagram
 
 ### 1. Un solo indice vettoriale condiviso da PHP e Java
 
-Lo schema vive in **un unico posto**, [`db/init/01-init.sql`](db/init/01-init.sql). Nessuno dei due backend ne è proprietario: Hibernate gira con `ddl-auto: none` e le migration di Laravel sono idempotenti (non fanno nulla se le tabelle esistono già).
+Lo schema vive in **un unico posto**, [`db/init/01-init.sql`](db/init/01-init.sql). Nessuno dei due backend ne è proprietario: Hibernate gira con `ddl-auto: none` e le migration di Laravel sono idempotenti (non fanno nulla se le tabelle esistono già). Un database creato prima della funzione sugli stati viene aggiornato sul posto da una migrazione idempotente (`reimbursement_requests.number`, l'identità `#1, #2…` e lo stato `EXECUTED`) — Laravel la esegue con `migrate`, Spring Boot con `spring.sql.init`; i dati restano.
 
 Il `PgVectorStore` standard di Spring AI crea una tabella *propria*, e questo avrebbe reso ogni PDF indicizzato da un backend invisibile all'altro. Invece `DocumentChunkVectorStore` implementa direttamente l'interfaccia `VectorStore` di Spring AI sopra la tabella condivisa `document_chunks`: il codice Java usa l'API standard (`add`, `upsert`, `similaritySearch`, `SearchRequest`, espressioni di filtro) mentre PHP legge e scrive le stesse identiche righe.
 
@@ -116,10 +116,12 @@ Il `PgVectorStore` standard di Spring AI crea una tabella *propria*, e questo av
 
 A un LLM che può scrivere su un database non si deve lasciare la decisione su *quando* farlo. Collaudando un modello reale da 3 miliardi di parametri, ha aperto un rimborso da 50 € in risposta a una semplice domanda sul limite delle cene (copiando il numero dai documenti) e uno da 200 € in risposta a *"Posso farmi rimborsare 200 € per una cena?"*. I prompt da soli non risolvono il problema, quindi le barriere sono **nel codice, indipendenti dal modello**, e identiche nei due backend:
 
-1. **Barriera sull'intento esplicito** — l'ultimo messaggio dell'utente deve essere una vera *richiesta* di creare un rimborso: un qualunque verbo naturale di creazione (*open, add, create, insert, register, request, send…* / *apri, aggiungi, crea, inserisci, registra, richiedi, invia…*) oppure una forma breve imperativa con importo (*"un rimborso da 120 euro per hotel"*). Le domande, le domande di permesso e le ipotesi (*"Posso farmi rimborsare 200 €?"*, *"Qual è il limite per l'hotel?"*) non sono mai ordini.
-2. **Barriera sulla provenienza dell'importo** — l'importo passato al tool deve comparire alla lettera nei messaggi dell'utente. Il modello non può mai prenderlo dai documenti né inventarlo.
+1. **Barriera sul verbo esplicito** — l'ultimo messaggio dell'utente deve essere un vero *ordine* con un verbo esplicito: per creare un rimborso (*open, add, create, insert, register, request, send…* / *apri, aggiungi, crea, inserisci, registra, richiedi, invia…*) oppure per cambiare lo stato di uno esistente (*mark, approve, reject, execute, update, close…* / *segna, approva, rifiuta, esegui, aggiorna, chiudi…*). Le domande, le domande di permesso e le ipotesi (*"Posso farmi rimborsare 200 €?"*, *"A che punto è il rimborso #2?"*) non sono mai ordini. **Una frase che sembra un ordine ma non ha il verbo** (*"allora un rimborso per hotel da 120 euro"*, *"rimborso #2 eseguito"*) non esegue nulla e non interpella nemmeno il modello: la risposta dice all'utente quali verbi usare, con un esempio costruito sul suo messaggio, e la UI mostra un avviso ambra a video (campo `warning` della risposta della chat).
+2. **Barriera sulla provenienza** — ciò su cui agisce il tool deve venire alla lettera dal messaggio dell'utente: l'importo per un nuovo rimborso; il `#numero` o la parola della descrizione per un cambio di stato. Nel cambio di stato il **nuovo stato lo decidono le parole dell'utente**, non il modello (*approva* → approvato, *rifiuta* → rifiutato, *esegui / segna come eseguito / paga / chiudi* → eseguito). Il modello non può mai prendere i valori dai documenti né inventarli.
 
-Oltre a queste: un tetto lato server (10.000 €) imposto dal servizio **e** da un vincolo `CHECK` del database, richieste create sempre come `OPEN` (l'approvazione è umana), ogni esito del tool restituito al modello come semplice testo e output del modello mostrato nella UI solo come testo (mai `innerHTML`). Le citazioni che puntano a documenti mai recuperati vengono riconosciute e sostituite da un rifiuto onesto. Poiché i piccoli modelli a volte *raccontano* una chiamata al tool invece di farla — e poi annunciano un rimborso mai creato — nel codice ci sono altre due difese: una risposta che dichiara un successo quando non è stato salvato nulla viene sostituita da un messaggio onesto, e un ordine non ambiguo con un solo importo scritto dall'utente viene eseguito dal backend stesso, attraverso lo stesso servizio protetto, se il modello non chiama il tool. Tutto questo è coperto da test automatici ed è stato provato con un modello reale.
+Il cambio di stato passa anche da regole di business nel servizio: un numero inesistente, una parola che corrisponde a più rimborsi (*"Più rimborsi corrispondono a «cena»: #1, #3. Indica il numero"*), un rimborso già in quello stato o in uno stato finale (*eseguito* e *rifiutato* non si modificano più) vengono rifiutati con una spiegazione e non si cambia nulla.
+
+Oltre a queste: un tetto lato server (10.000 €) imposto dal servizio **e** da un vincolo `CHECK` del database, richieste create sempre come `OPEN` (l'approvazione è umana), ogni esito del tool restituito al modello come semplice testo e output del modello mostrato nella UI solo come testo (mai `innerHTML`). Le citazioni che puntano a documenti mai recuperati vengono riconosciute e sostituite da un rifiuto onesto. Poiché i piccoli modelli a volte *raccontano* una chiamata al tool invece di farla — e poi annunciano un rimborso mai creato — nel codice ci sono altre due difese: una risposta che dichiara un successo quando non è stato salvato nulla viene sostituita da un messaggio onesto, e un ordine non ambiguo (un solo importo scritto dall'utente, oppure un cambio di stato con uno stato chiaro e un riferimento) viene eseguito dal backend stesso, attraverso lo stesso servizio protetto, se il modello non chiama il tool. Tutto questo è coperto da test automatici ed è stato provato con un modello reale.
 
 ### 3. IA local-first: Ollama, nativo o in Docker — oppure OpenAI
 
@@ -165,9 +167,9 @@ Stesso contratto, stesso comportamento, stesso database — idiomi diversi. Le d
 | Validazione ed errori | `FormRequest` + renderer delle eccezioni in `bootstrap/app.php` | Validazione manuale nei controller + `@RestControllerAdvice` |
 | Configurazione | `.env` + `config/eaa.php` | `application.yml` + record `@ConfigurationProperties` |
 | Cambio provider | `AI_PROVIDER` in `.env` | `spring.ai.model.*` in `application.yml` (entrambi gli starter nel classpath, tipi di modello inutilizzati disattivati) |
-| Schema | Migration idempotenti (+ SQL di init condiviso) | Nessuna — SQL di init condiviso, `ddl-auto: none` |
+| Schema | Migration idempotenti (+ SQL di init condiviso) | SQL di init condiviso, `ddl-auto: none`; un piccolo script idempotente di aggiornamento (`spring.sql.init`) |
 | Codice applicativo | ≈ 2,1 k righe (commenti inclusi) | ≈ 2,1 k righe (commenti inclusi) |
-| Test automatici | **131** (PHPUnit, 1.303 asserzioni) | **82** (JUnit 5 + MockMvc) |
+| Test automatici | **214** (PHPUnit, 1.478 asserzioni) | **97** (JUnit 5 + MockMvc) |
 | Immagine container | 826 MB (immagine di sviluppo, sorgenti montati) | 803 MB (multi-stage, fat jar); l'app parte in ~4 s |
 | Trappole incontrate | `artisan serve` ignora le variabili d'ambiente del container → usare `php -S`; i warning PHP nel corpo della risposta rovinano il JSON → `display_errors=Off` | Spring AI 2.x ha eliminato `toolNames()`; con entrambi gli starter nel classpath i tipi di modello inutilizzati vanno messi a `none`, altrimenti l'app non parte senza chiave API; Tomcat richiede `max-swallow-size` per rispondere `413` agli upload grandi |
 | Giudizio onesto | Il più rapido per iterare; la parte di IA è uno strato sottile e leggibile | Più cerimonia, ma le astrazioni (`VectorStore`, tool callback, tokenizzatore reale) sono di prima classe e sostituibili |
@@ -202,9 +204,9 @@ Ti serve un solo backend? Usa solo `--profile laravel` **oppure** `--profile spr
 ```bash
 docker compose up -d postgres
 docker compose exec postgres psql -U eaa -d eaa -c 'CREATE DATABASE eaa_test'          # una volta, per Laravel
-docker compose run --rm -e RUN_MIGRATIONS=false backend-laravel php artisan test      # 131 test
-(cd backend-springboot && ./mvnw test)                                                 # 82 test (crea il proprio DB)
-(cd frontend-angular && npm test)                                                      # 64 test
+docker compose run --rm -e RUN_MIGRATIONS=false backend-laravel php artisan test      # 214 test
+(cd backend-springboot && ./mvnw test)                                                 # 97 test (crea il proprio DB)
+(cd frontend-angular && npm test)                                                      # 69 test
 ```
 
 **Prima del primo commit — assicurati che nessun segreto, dipendenza o file temporaneo sia tracciato**
@@ -247,7 +249,7 @@ Il [`.gitignore`](.gitignore) della radice blocca `.env*` (tranne `.env.example`
 
 Cosa è stato davvero eseguito (non solo scritto):
 
-- **277 test automatici** nelle tre app (131 + 82 + 64) — PostgreSQL + pgvector reali, LLM simulato.
+- **380 test automatici** nelle tre app (214 + 97 + 69) — PostgreSQL + pgvector reali, LLM simulato.
 - **Prove dal vivo con un modello locale reale** (`qwen2.5:7b`): ingestione, risposte con citazioni, tool calling e i casi di fallimento descritti sopra — ed è così che sono state trovate le barriere e la soglia di similarità.
 - **Controlli di parità tra i backend:** 15 risposte API (dati + ogni errore di validazione/404/405) e 6 casi di upload reali (nessun file, `.txt`, eseguibile rinominato, PDF corrotto, 21 MB, 50 MB) confrontati tra `:8000` e `:8080` — identici.
 - **End-to-end in un browser reale** (Playwright + Chromium, eseguito a mano, non incluso nel repository): drag & drop, indicatore di caricamento, badge delle fonti, aggiornamento automatico della tabella, cambio backend a runtime con persistenza in `localStorage`, stati d'errore, layout responsive fino a 360 px. Eseguito su entrambi i backend.

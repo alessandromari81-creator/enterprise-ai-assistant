@@ -21,7 +21,7 @@ use Prism\Prism\Tool;
  */
 class ReimbursementTool
 {
-    /** @var list<array{type: string, reimbursementId: string, amount: string, currency: string, description: ?string}> */
+    /** @var list<array<string, mixed>> */
     private array $actions = [];
 
     /**
@@ -43,9 +43,9 @@ class ReimbursementTool
             ->as('createReimbursementRequest')
             ->for(
                 'Apre una richiesta di rimborso spese per l\'utente. '
-                .'Da usare quando l\'utente chiede di aprire, aggiungere, creare, inserire o registrare una richiesta di rimborso '
-                .'(anche in forma breve e imperativa) e ha indicato l\'importo. '
-                .'Non va usato per domande sui limiti, sui permessi o ipotetiche.'
+                .'Da usare quando l\'utente ordina con un verbo esplicito di aprire, aggiungere, creare, inserire o registrare '
+                .'una richiesta di rimborso e ha indicato l\'importo. '
+                .'Non va usato per domande sui limiti, sui permessi o ipotetiche, né per aggiornare un rimborso esistente.'
             )
             ->withNumberParameter('amount', 'Importo in euro, numero positivo (es. 50 oppure 12.5).')
             // Niente esempi nella descrizione dei parametri: i modelli piccoli li copiano (provato dal
@@ -60,7 +60,7 @@ class ReimbursementTool
     /**
      * Azioni eseguite durante la richiesta: finiscono in `actions[]` della risposta della chat.
      *
-     * @return list<array{type: string, reimbursementId: string, amount: string, currency: string, description: ?string}>
+     * @return list<array<string, mixed>>
      */
     public function actions(): array
     {
@@ -99,9 +99,11 @@ class ReimbursementTool
         $this->actions[] = [
             'type' => 'REIMBURSEMENT_CREATED',
             'reimbursementId' => $request->id,
+            'number' => (int) $request->number,
             'amount' => $request->amount,
             'currency' => $request->currency,
             'description' => $request->description,
+            'status' => $request->status->value,
         ];
 
         return $this->successMessage($request);

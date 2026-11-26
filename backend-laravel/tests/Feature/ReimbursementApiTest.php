@@ -37,11 +37,12 @@ class ReimbursementApiTest extends TestCase
         $item = $this->getJson('/api/reimbursements')->assertOk()->json('items.0');
 
         $this->assertSame(
-            ['amount', 'conversationId', 'createdAt', 'currency', 'description', 'id', 'requestedBy', 'status'],
+            ['amount', 'conversationId', 'createdAt', 'currency', 'description', 'id', 'number', 'requestedBy', 'status'],
             collect($item)->keys()->sort()->values()->all(),
         );
         $this->assertSame('50.00', $item['amount'], 'Importo stringa con 2 decimali');
         $this->assertSame('OPEN', $item['status']);
+        $this->assertIsInt($item['number']);
         $this->assertSame('5d1c1d2a-8a4b-4e3f-b0a1-77a1d2c0f001', $item['conversationId']);
         $this->assertMatchesRegularExpression('/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/', $item['createdAt']);
     }
@@ -69,6 +70,28 @@ class ReimbursementApiTest extends TestCase
 
         $this->assertSame(['20.00'], array_column($response->json('items'), 'amount'));
         $response->assertJsonPath('totalItems', 1);
+    }
+
+    public function test_il_filtro_per_stato_accetta_eseguito(): void
+    {
+        $this->make('10');
+        $this->make('20', ReimbursementStatus::Executed);
+
+        $response = $this->getJson('/api/reimbursements?status=EXECUTED')->assertOk();
+
+        $this->assertSame(['20.00'], array_column($response->json('items'), 'amount'));
+        $this->assertSame('EXECUTED', $response->json('items.0.status'));
+    }
+
+    public function test_i_numeri_dei_rimborsi_sono_progressivi_e_unici(): void
+    {
+        $this->make('10');
+        $this->make('20');
+
+        $numbers = array_column($this->getJson('/api/reimbursements')->assertOk()->json('items'), 'number');
+
+        $this->assertCount(2, array_unique($numbers));
+        $this->assertSame(1, max($numbers) - min($numbers));
     }
 
     public function test_parametri_non_validi_rispondono_400(): void

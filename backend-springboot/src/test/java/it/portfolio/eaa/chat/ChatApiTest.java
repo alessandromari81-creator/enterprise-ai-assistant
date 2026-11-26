@@ -20,6 +20,7 @@ import tools.jackson.databind.JsonNode;
 class ChatApiTest extends IntegrationTest {
 
     private static final String TOOL = "createReimbursementRequest";
+    private static final String STATUS_TOOL = "updateReimbursementStatus";
 
     /** Indicizza una policy (con embedding finti) e poi prepara le risposte che darà la chat. */
     private void seedPolicy(String... chatResponses) throws Exception {
@@ -64,7 +65,8 @@ class ChatApiTest extends IntegrationTest {
         JsonNode response = body(chat("Qual è il limite per il taxi?").andExpect(status().isOk()));
 
         assertThat(response.propertyNames()).containsExactlyInAnyOrder(
-                "conversationId", "messageId", "answer", "sources", "actions", "createdAt");
+                "conversationId", "messageId", "answer", "sources", "actions", "warning", "createdAt");
+        assertThat(response.get("warning").isNull()).isTrue();
         assertThat(response.get("actions")).isEmpty();
         assertThat(response.get("sources")).hasSize(1);
         JsonNode source = response.get("sources").get(0);
@@ -84,7 +86,9 @@ class ChatApiTest extends IntegrationTest {
                 .contains("ESCLUSIVAMENTE")
                 .contains("Il taxi e rimborsabile");
         // ...e il tool è dichiarato al modello con la sua descrizione (@Description) e i suoi parametri.
-        assertThat(firstRequest.get("tools").get(0).get("function").get("name").asString()).isEqualTo(TOOL);
+        List<String> toolNames = new ArrayList<>();
+        firstRequest.get("tools").forEach(t -> toolNames.add(t.get("function").get("name").asString()));
+        assertThat(toolNames).containsExactlyInAnyOrder(TOOL, STATUS_TOOL);
         assertThat(firstRequest.get("tools").get(0).get("function").get("description").asString()).contains("rimborso");
     }
 
@@ -104,7 +108,6 @@ class ChatApiTest extends IntegrationTest {
         seedPolicy();
         Object[][] cases = {
                 {"aggiungi un rimborso 20 euro per taxi", 20, "20.00"},
-                {"allora un rimborso per hotel da 120 euro", 120, "120.00"},
                 {"aggiungi un rimborso 20 euro per hotel", 20, "20.00"},
         };
 
@@ -114,7 +117,7 @@ class ChatApiTest extends IntegrationTest {
             chat((String) c[0]).andExpect(status().isOk()).andExpect(jsonPath("$.actions[0].amount").value((String) c[2]));
         }
 
-        assertThat(count("reimbursement_requests")).isEqualTo(3);
+        assertThat(count("reimbursement_requests")).isEqualTo(2);
     }
 
     @Test
@@ -124,7 +127,7 @@ class ChatApiTest extends IntegrationTest {
         chat("aggiungi un rimborso 20 euro per taxi").andExpect(status().isOk());
 
         assertThat(ollama.chatRequests().get(0).get("messages").get(0).get("content").asString())
-                .contains("aggiungi").contains("anche senza verbo").contains("non rispondere MAI con questa frase");
+                .contains("aggiungi").contains("updateReimbursementStatus").contains("con un verbo esplicito").contains("non rispondere MAI con questa frase");
     }
 
     @Test
@@ -154,11 +157,11 @@ class ChatApiTest extends IntegrationTest {
 
     @Test
     void seIlModelloNonChiamaIlToolUnOrdineNonAmbiguoVieneEseguitoDalBackend() throws Exception {
-        // "allora un rimborso per hotel da 120 euro": il modello NARRA la chiamata invece di farla. Il backend crea
+        // "aggiungi un rimborso da 120 euro per hotel": il modello NARRA la chiamata invece di farla. Il backend crea
         // il rimborso con lo stesso servizio e le stesse barriere (importo scritto dall'utente, tetto, stato OPEN).
         seedPolicy(FakeOllama.chatText("Creo una richiesta di rimborso per hotel da 120 euro. Lo strumento ha risposto: {\"id\": \"RR123456\"}"));
 
-        JsonNode response = body(chat("allora un rimborso per hotel da 120 euro").andExpect(status().isOk()));
+        JsonNode response = body(chat("aggiungi un rimborso da 120 euro per hotel").andExpect(status().isOk()));
 
         JsonNode action = response.get("actions").get(0);
         assertThat(action.get("amount").asString()).isEqualTo("120.00");
@@ -292,6 +295,152 @@ class ChatApiTest extends IntegrationTest {
                 .andExpect(jsonPath("$.sources[0].documentId").value(documentId));
     }
 
+    // --- Aggiornamento dello stato (tool updateReimbursementStatus) ----------------------------------------
+
+    /** Crea un rimborso di prova direttamente nel DB e ne restituisce il numero assegnato dal database. */
+    private long makeRefund(String description, String status) {
+        return jdbc.queryForObject(
+                "INSERT INTO reimbursement_requests (amount, currency, description, status, requested_by) "
+                        + "VALUES (40.00, 'EUR', ?, ?, 'demo-user') RETURNING number", Long.class, description, status);
+    }
+
+    private String statusOf(long number) {
+        return jdbc.queryForObject("SELECT status FROM reimbursement_requests WHERE number = ?", String.class, number);
+    }
+
+    @Test
+    void segnaComeEseguitoUnRimborsoIndicatoDalNumero() throws Exception {
+        long n = makeRefund("cena", "OPEN");
+        seedPolicy(FakeOllama.chatToolCall(STATUS_TOOL, Map.of("status", "EXECUTED", "number", n)), FakeOllama.chatText("Fatto."));
+
+        JsonNode response = body(chat("Segna come eseguito il rimborso #" + n).andExpect(status().isOk()));
+
+        JsonNode action = response.get("actions").get(0);
+        assertThat(action.get("type").asString()).isEqualTo("REIMBURSEMENT_UPDATED");
+        assertThat(action.get("number").asLong()).isEqualTo(n);
+        assertThat(action.get("status").asString()).isEqualTo("EXECUTED");
+        assertThat(statusOf(n)).isEqualTo("EXECUTED");
+        assertThat(response.get("sources")).isEmpty();
+        assertThat(response.get("warning").isNull()).isTrue();
+
+        // GET /api/reimbursements restituisce lo stato aggiornato.
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/reimbursements"))
+                .andExpect(jsonPath("$.items[0].status").value("EXECUTED"))
+                .andExpect(jsonPath("$.items[0].number").value(n));
+    }
+
+    @Test
+    void approvaUnRimborsoIndicatoDaUnaParolaDellaDescrizione() throws Exception {
+        long hotel = makeRefund("hotel", "OPEN");
+        long cena = makeRefund("cena", "OPEN");
+        seedPolicy(FakeOllama.chatToolCall(STATUS_TOOL, Map.of("status", "APPROVED", "keyword", "cena")), FakeOllama.chatText("Fatto."));
+
+        chat("Approva il rimborso della cena")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.actions[0].type").value("REIMBURSEMENT_UPDATED"))
+                .andExpect(jsonPath("$.actions[0].status").value("APPROVED"));
+
+        assertThat(statusOf(cena)).isEqualTo("APPROVED");
+        assertThat(statusOf(hotel)).isEqualTo("OPEN");
+    }
+
+    @Test
+    void unaDomandaSulloStatoNonModificaNulla() throws Exception {
+        long n = makeRefund("cena", "OPEN");
+        seedPolicy(FakeOllama.chatToolCall(STATUS_TOOL, Map.of("status", "APPROVED", "number", n)), FakeOllama.chatText("Il rimborso è in attesa."));
+
+        chat("A che punto è il rimborso #" + n + "?").andExpect(status().isOk()).andExpect(jsonPath("$.actions").isEmpty());
+
+        assertThat(statusOf(n)).isEqualTo("OPEN");
+        assertThat(toolMessagesSentToModel()).anyMatch(m -> m.contains("è una domanda"));
+    }
+
+    @Test
+    void ilModelloNonPuoScegliereUnAltroRimborsoOUnAltroStato() throws Exception {
+        long hotel = makeRefund("hotel", "OPEN");
+        long cena = makeRefund("cena", "OPEN");
+        // L'utente dice "approva la cena", il modello prova a RIFIUTARE l'hotel (numero mai scritto dall'utente).
+        seedPolicy(FakeOllama.chatToolCall(STATUS_TOOL, Map.of("status", "REJECTED", "number", hotel)), FakeOllama.chatText("Ok."));
+
+        chat("Approva il rimborso della cena").andExpect(status().isOk());
+
+        assertThat(statusOf(hotel)).as("L'hotel non va toccato").isEqualTo("OPEN");
+        assertThat(statusOf(cena)).as("La rete di sicurezza applica lo stato scritto dall'utente").isEqualTo("APPROVED");
+        assertThat(toolMessagesSentToModel()).anyMatch(m -> m.contains("non compare nel messaggio"));
+    }
+
+    @Test
+    void seIlModelloNonChiamaIlToolDiAggiornamentoLoEseguePoiIlBackend() throws Exception {
+        long n = makeRefund("cena", "OPEN");
+        seedPolicy(FakeOllama.chatText("Ho approvato il rimborso #" + n + "."));
+
+        JsonNode response = body(chat("Approva il rimborso #" + n).andExpect(status().isOk()));
+
+        assertThat(response.get("actions").get(0).get("type").asString()).isEqualTo("REIMBURSEMENT_UPDATED");
+        assertThat(statusOf(n)).isEqualTo("APPROVED");
+        assertThat(response.get("answer").asString()).contains("Approvato");
+    }
+
+    @Test
+    void riferimentiAmbiguiInesistentiOStatiFinaliNonModificanoNulloESpieganoPerche() throws Exception {
+        makeRefund("cena di lavoro", "OPEN");
+        makeRefund("cena con il cliente", "OPEN");
+        long executed = makeRefund("taxi", "EXECUTED");
+        seedPolicy();
+
+        String[][] cases = {
+                {"Approva il rimborso della cena", "Più rimborsi corrispondono"},
+                {"Approva il rimborso #99", "Non esiste nessun rimborso con numero 99"},
+                {"Rifiuta il rimborso #" + executed, "non può più essere modificato"},
+                {"Segna come eseguito il rimborso #" + executed, "è già «Eseguito»"},
+        };
+        for (String[] c : cases) {
+            ollama.queueChat(FakeOllama.chatText("Ok."));
+
+            JsonNode response = body(chat(c[0]).andExpect(status().isOk()));
+
+            assertThat(response.get("actions")).as(c[0]).isEmpty();
+            assertThat(response.get("answer").asString()).as(c[0]).contains(c[1]);
+        }
+        assertThat(statusOf(executed)).isEqualTo("EXECUTED");
+    }
+
+    @Test
+    void unaConfermaFalsaDiAggiornamentoVieneSostituitaDaUnMessaggioOnesto() throws Exception {
+        long n = makeRefund("cena", "OPEN");
+        // "Aggiorna il rimborso #n": manca lo stato, non si può eseguire; il modello però dichiara di averlo fatto.
+        seedPolicy(FakeOllama.chatText("Ho aggiornato il rimborso #" + n + " come richiesto."));
+
+        chat("Aggiorna il rimborso #" + n)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.answer").value(ChatService.NOT_UPDATED))
+                .andExpect(jsonPath("$.actions").isEmpty());
+        assertThat(statusOf(n)).isEqualTo("OPEN");
+    }
+
+    @Test
+    void unaFraseSenzaVerboNonEsegueNullaNonInterpellaIlModelloEMostraUnAvviso() throws Exception {
+        // Nessuna risposta accodata a FakeOllama: se il modello venisse interpellato il test fallirebbe.
+        JsonNode response = body(chat("allora un rimborso per hotel da 120 euro").andExpect(status().isOk()));
+
+        assertThat(response.get("warning").asString()).isEqualTo(ReimbursementIntent.HINT_WARNING);
+        assertThat(response.get("answer").asString())
+                .contains("manca un verbo esplicito").contains("«Aggiungi un rimborso da 120 € per hotel»");
+        assertThat(response.get("actions")).isEmpty();
+        assertThat(response.get("sources")).isEmpty();
+        assertThat(count("reimbursement_requests")).isZero();
+        assertThat(ollama.chatRequests()).isEmpty();
+        assertThat(count("chat_messages")).as("i due messaggi sono salvati").isEqualTo(2);
+    }
+
+    @Test
+    void senzaVerboAncheLAggiornamentoMostraUnAvviso() throws Exception {
+        chat("rimborso #2 eseguito")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.warning").value(ReimbursementIntent.HINT_WARNING))
+                .andExpect(jsonPath("$.actions").isEmpty());
+    }
+
     // --- Tool calling: rimborsi ------------------------------------------------------------------------------
 
     @Test
@@ -303,7 +452,8 @@ class ChatApiTest extends IntegrationTest {
         JsonNode response = body(chat("Apri una richiesta di rimborso per 50€ per la cena col cliente").andExpect(status().isOk()));
 
         JsonNode action = response.get("actions").get(0);
-        assertThat(action.propertyNames()).containsExactlyInAnyOrder("type", "reimbursementId", "amount", "currency", "description");
+        assertThat(action.propertyNames()).containsExactlyInAnyOrder("type", "reimbursementId", "number", "amount", "currency", "description", "status");
+        assertThat(action.get("status").asString()).isEqualTo("OPEN");
         assertThat(action.get("type").asString()).isEqualTo("REIMBURSEMENT_CREATED");
         assertThat(action.get("amount").asString()).isEqualTo("50.00");
         assertThat(action.get("currency").asString()).isEqualTo("EUR");
@@ -320,7 +470,7 @@ class ChatApiTest extends IntegrationTest {
         assertThat(row.get("conv")).isEqualTo(response.get("conversationId").asString());
 
         // Il modello ha ricevuto l'esito del tool nella seconda chiamata.
-        assertThat(toolMessagesSentToModel()).anyMatch(m -> m.contains("OK: richiesta di rimborso creata"));
+        assertThat(toolMessagesSentToModel()).anyMatch(m -> m.contains("OK: richiesta di rimborso #"));
     }
 
     @Test
@@ -417,7 +567,7 @@ class ChatApiTest extends IntegrationTest {
                 FakeOllama.chatToolCall(TOOL, Map.of("amount", 40)),
                 FakeOllama.chatText("Fatto."));
 
-        String conversationId = body(chat("Ho speso 40 euro per una cena, vorrei un rimborso").andExpect(status().isOk()))
+        String conversationId = body(chat("Ho speso 40 euro per una cena, mi serve una mano").andExpect(status().isOk()))
                 .get("conversationId").asString();
 
         chat(Map.of("message", "Sì, aprilo pure", "conversationId", conversationId))

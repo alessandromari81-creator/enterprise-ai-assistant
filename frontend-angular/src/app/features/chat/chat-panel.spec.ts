@@ -76,7 +76,7 @@ describe('ChatPanel', () => {
     textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true }));
     await fixture.whenStable();
     http.expectOne(`${BASE}/chat`).flush({
-      conversationId: 'c1', messageId: 'm1', answer: 'ok', sources: [], actions: [], createdAt: '2026-11-25T14:17:11Z',
+      conversationId: 'c1', messageId: 'm1', answer: 'ok', sources: [], actions: [], warning: null, createdAt: '2026-11-25T14:17:11Z',
     });
     await vi.waitFor(() => fixture.detectChanges());
   });
@@ -88,7 +88,7 @@ describe('ChatPanel', () => {
 
     expect(parts).toEqual([
       ['📄', 'Limite massimo per la cena?'],
-      ['🏨', 'Massimale rimborso hotel?'],
+      ['✅', 'Segna come eseguito il rimborso #1'],
       ['💶', 'Apri rimborso da 40€ per cena'],
       ['❓', 'Posso farmi rimborsare 200€?'],
     ]);
@@ -102,7 +102,7 @@ describe('ChatPanel', () => {
   it('ogni chip invia direttamente in chat la sua frase completa', async () => {
     const expected = [
       'Qual è il limite massimo per una cena?',
-      "Quanto posso spendere per l'hotel a notte?",
+      'Segna come eseguito il rimborso #1',
       'Aprimi un rimborso da 40€ per cena',
       'Posso farmi rimborsare 200€ per una cena?',
     ];
@@ -113,7 +113,7 @@ describe('ChatPanel', () => {
 
       const request = http.expectOne(`${BASE}/chat`);
       expect(request.request.body.message).toBe(expected[i]);
-      request.flush({ conversationId: 'c1', messageId: 'm' + i, answer: 'ok', sources: [], actions: [], createdAt: '2026-11-25T14:17:11Z' });
+      request.flush({ conversationId: 'c1', messageId: 'm' + i, answer: 'ok', sources: [], actions: [], warning: null, createdAt: '2026-11-25T14:17:11Z' });
       await vi.waitFor(() => {
         fixture.detectChanges();
         expect(html().querySelector('[data-testid="typing-indicator"]')).toBeNull();
@@ -128,7 +128,7 @@ describe('ChatPanel', () => {
     const chips = Array.from(html().querySelectorAll<HTMLButtonElement>('[data-testid="quick-prompt"]'));
     expect(chips.every((c) => c.disabled)).toBe(true);
 
-    http.expectOne(`${BASE}/chat`).flush({ conversationId: 'c1', messageId: 'm', answer: 'ok', sources: [], actions: [], createdAt: '2026-11-25T14:17:11Z' });
+    http.expectOne(`${BASE}/chat`).flush({ conversationId: 'c1', messageId: 'm', answer: 'ok', sources: [], actions: [], warning: null, createdAt: '2026-11-25T14:17:11Z' });
     await vi.waitFor(() => {
       fixture.detectChanges();
       expect(Array.from(html().querySelectorAll<HTMLButtonElement>('[data-testid="quick-prompt"]')).every((c) => !c.disabled)).toBe(true);
@@ -142,7 +142,7 @@ describe('ChatPanel', () => {
     const request = http.expectOne(`${BASE}/chat`);
     expect(request.request.body.message).toBe('Qual è il limite massimo per una cena?');
     request.flush({
-      conversationId: 'c1', messageId: 'm1', answer: 'ok', sources: [], actions: [], createdAt: '2026-11-25T14:17:11Z',
+      conversationId: 'c1', messageId: 'm1', answer: 'ok', sources: [], actions: [], warning: null, createdAt: '2026-11-25T14:17:11Z',
     });
     await vi.waitFor(() => fixture.detectChanges());
   });

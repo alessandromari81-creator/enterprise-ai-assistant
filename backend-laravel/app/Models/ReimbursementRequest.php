@@ -33,6 +33,7 @@ class ReimbursementRequest extends Model
     {
         return [
             // "decimal:2" restituisce sempre una stringa con 2 decimali ("50.00"), come richiede il contratto.
+            'number' => 'integer',
             'amount' => 'decimal:2',
             'status' => ReimbursementStatus::class,
         ];

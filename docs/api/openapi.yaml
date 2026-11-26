@@ -88,6 +88,13 @@ paths:
         - Ogni affermazione dei documenti è citata nel testo come `[nomefile, p. N]`; `sources` elenca i chunk usati.
         - Se l'utente chiede di aprire un rimborso, il modello invoca il tool `createReimbursementRequest(amount, description)`;
           l'esito compare in `actions`. Importo mancante o non valido -> il modello chiede chiarimento, nessuna azione.
+        - Se l'utente ordina di aggiornare lo stato di un rimborso esistente («Segna come eseguito il rimborso #2»,
+          «Approva il rimborso della cena»), il modello invoca `updateReimbursementStatus(status, number | keyword)`;
+          l'esito compare in `actions` con `type: REIMBURSEMENT_UPDATED`. Riferimento inesistente o ambiguo, stato già
+          impostato o finale -> nessuna modifica e la risposta spiega il motivo.
+        - Entrambi i tool partono SOLO da un verbo esplicito (apri, aggiungi, crea... / segna, approva, rifiuta, esegui,
+          aggiorna, chiudi), mai da domande o ipotesi. Se il messaggio sembra un ordine ma manca il verbo, il modello
+          non viene interpellato: `actions` è vuoto, `answer` indica i verbi da usare e `warning` è valorizzato.
         - `conversationId` assente -> ne viene creato uno nuovo e restituito.
       requestBody:
         required: true
@@ -124,20 +131,50 @@ paths:
                         score: 0.83
                         snippet: "…le corse in taxi sono rimborsabili fino a 40 € per tratta…"
                     actions: []
+                    warning: null
                     createdAt: "2026-11-25T10:20:01Z"
                 action:
                   value:
                     conversationId: "5d1c1d2a-8a4b-4e3f-b0a1-77a1d2c0f001"
                     messageId: "e8b0d4f1-92aa-4c6e-a3b7-1f5c0d7e2a44"
-                    answer: "Ho aperto la richiesta di rimborso di 50,00 € (cena col cliente)."
+                    answer: "Ho aperto la richiesta di rimborso #1 di 50,00 EUR (Cena col cliente). Resta in stato OPEN in attesa di approvazione."
                     sources: []
                     actions:
                       - type: REIMBURSEMENT_CREATED
                         reimbursementId: "7c3e9f10-5b2a-4d88-9e61-a0b4c8d2f155"
+                        number: 1
                         amount: "50.00"
                         currency: EUR
                         description: "Cena col cliente"
+                        status: OPEN
+                    warning: null
                     createdAt: "2026-11-25T10:21:44Z"
+                update:
+                  value:
+                    conversationId: "5d1c1d2a-8a4b-4e3f-b0a1-77a1d2c0f001"
+                    messageId: "a41d6c07-3e9b-4b8a-9c52-6e0f2d8b7c10"
+                    answer: "Ho aggiornato il rimborso #1 (Cena col cliente, 50,00 EUR): ora è «Eseguito»."
+                    sources: []
+                    actions:
+                      - type: REIMBURSEMENT_UPDATED
+                        reimbursementId: "7c3e9f10-5b2a-4d88-9e61-a0b4c8d2f155"
+                        number: 1
+                        amount: "50.00"
+                        currency: EUR
+                        description: "Cena col cliente"
+                        status: EXECUTED
+                    warning: null
+                    createdAt: "2026-11-25T10:23:02Z"
+                missingVerb:
+                  summary: Frase senza verbo esplicito (nessuna azione, nessuna chiamata al modello)
+                  value:
+                    conversationId: "5d1c1d2a-8a4b-4e3f-b0a1-77a1d2c0f001"
+                    messageId: "b9c2e5a8-7d10-4f3b-8e64-2a1c9d0f4b77"
+                    answer: "Non ho eseguito nessuna azione perché nel messaggio manca un verbo esplicito. Per creare un rimborso usa apri, aggiungi, crea, inserisci, registra o richiedi; per aggiornarlo usa segna, approva, rifiuta, esegui, aggiorna o chiudi. Prova così: «Aggiungi un rimborso da 120 € per hotel»."
+                    sources: []
+                    actions: []
+                    warning: "Manca un verbo esplicito: nessuna azione eseguita."
+                    createdAt: "2026-11-25T10:24:10Z"
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
         "502": { $ref: "#/components/responses/UpstreamError" }
@@ -160,6 +197,7 @@ paths:
               example:
                 items:
                   - id: "7c3e9f10-5b2a-4d88-9e61-a0b4c8d2f155"
+                    number: 1
                     amount: "50.00"
                     currency: EUR
                     description: "Cena col cliente"
@@ -180,7 +218,8 @@ components:
       enum: [PROCESSING, READY, FAILED]
     ReimbursementStatus:
       type: string
-      enum: [OPEN, APPROVED, REJECTED]
+      enum: [OPEN, APPROVED, REJECTED, EXECUTED]
+      description: "OPEN = In attesa, APPROVED = Approvato, REJECTED = Rifiutato, EXECUTED = Eseguito. REJECTED ed EXECUTED sono stati finali."
     Document:
       type: object
       required: [id, filename, sizeBytes, pageCount, chunkCount, status, errorMessage, createdAt]
@@ -215,16 +254,18 @@ components:
         snippet: { type: string, maxLength: 300 }
     Action:
       type: object
-      required: [type, reimbursementId, amount, currency, description]
+      required: [type, reimbursementId, number, amount, currency, description, status]
       properties:
-        type: { type: string, enum: [REIMBURSEMENT_CREATED] }
+        type: { type: string, enum: [REIMBURSEMENT_CREATED, REIMBURSEMENT_UPDATED] }
         reimbursementId: { type: string, format: uuid }
+        number: { type: integer, format: int64, description: "Numero progressivo del rimborso (#1, #2...)" }
         amount: { type: string, pattern: '^\d{1,8}\.\d{2}$' }
         currency: { type: string, pattern: '^[A-Z]{3}$' }
         description: { type: [string, "null"] }
+        status: { $ref: "#/components/schemas/ReimbursementStatus" }
     ChatResponse:
       type: object
-      required: [conversationId, messageId, answer, sources, actions, createdAt]
+      required: [conversationId, messageId, answer, sources, actions, warning, createdAt]
       properties:
         conversationId: { type: string, format: uuid }
         messageId: { type: string, format: uuid }
@@ -235,12 +276,16 @@ components:
         actions:
           type: array
           items: { $ref: "#/components/schemas/Action" }
+        warning:
+          type: [string, "null"]
+          description: "Avviso da mostrare a video (null se non serve). Oggi: il messaggio sembra un ordine ma manca il verbo esplicito; nessuna azione è stata eseguita e `answer` spiega quali verbi usare."
         createdAt: { type: string, format: date-time }
     Reimbursement:
       type: object
-      required: [id, amount, currency, description, status, requestedBy, conversationId, createdAt]
+      required: [id, number, amount, currency, description, status, requestedBy, conversationId, createdAt]
       properties:
         id: { type: string, format: uuid }
+        number: { type: integer, format: int64, description: "Numero progressivo (#1, #2...): lo usa l'utente in chat" }
         amount: { type: string, pattern: '^\d{1,8}\.\d{2}$' }
         currency: { type: string, pattern: '^[A-Z]{3}$' }
         description: { type: [string, "null"] }

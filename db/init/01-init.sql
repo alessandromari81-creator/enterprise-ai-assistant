@@ -41,11 +41,12 @@ CREATE INDEX document_chunks_embedding_idx
 
 CREATE TABLE reimbursement_requests (
     id                     UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+    number                 BIGINT        GENERATED ALWAYS AS IDENTITY UNIQUE,   -- numero progressivo leggibile (#1, #2...)
     amount                 NUMERIC(10,2) NOT NULL CHECK (amount > 0 AND amount <= 10000),
     currency               CHAR(3)       NOT NULL DEFAULT 'EUR',
     description            TEXT,
     status                 VARCHAR(10)   NOT NULL DEFAULT 'OPEN'
-                           CHECK (status IN ('OPEN', 'APPROVED', 'REJECTED')),
+                           CHECK (status IN ('OPEN', 'APPROVED', 'REJECTED', 'EXECUTED')),
     requested_by           VARCHAR(100)  NOT NULL DEFAULT 'demo-user',
     source_conversation_id UUID,                                        -- chat da cui l'IA ha creato la richiesta
     created_at             TIMESTAMPTZ   NOT NULL DEFAULT now()

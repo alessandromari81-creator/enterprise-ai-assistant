@@ -20,6 +20,7 @@ class ReimbursementResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'number' => (int) $this->number,
             'amount' => $this->amount, // stringa "50.00"
             'currency' => $this->currency,
             'description' => $this->description,

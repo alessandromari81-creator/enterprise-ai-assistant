@@ -36,7 +36,8 @@
         <caption class="sr-only">Elenco delle richieste di rimborso, dalla più recente</caption>
         <thead class="sticky top-0 bg-slate-50 text-xs font-medium text-slate-500 uppercase">
           <tr>
-            <th scope="col" class="px-4 py-2">Data</th>
+            <th scope="col" class="px-4 py-2">N.</th>
+            <th scope="col" class="px-2 py-2">Data</th>
             <th scope="col" class="px-2 py-2 text-right">Importo</th>
             <th scope="col" class="px-2 py-2">Descrizione</th>
             <th scope="col" class="px-4 py-2">Stato</th>
@@ -49,7 +50,8 @@
               [class]="store.highlightedIds().has(item.id) ? 'bg-emerald-100' : 'bg-white'"
               data-testid="reimbursement-row"
             >
-              <td class="px-4 py-2.5 whitespace-nowrap text-slate-600">{{ item.createdAt | dateTime }}</td>
+              <td class="px-4 py-2.5 font-medium whitespace-nowrap text-slate-900" data-testid="reimbursement-number">#{{ item.number }}</td>
+              <td class="px-2 py-2.5 whitespace-nowrap text-slate-600">{{ item.createdAt | dateTime }}</td>
               <td class="px-2 py-2.5 text-right font-medium whitespace-nowrap text-slate-900">
                 {{ item.amount | money: item.currency }}
               </td>

@@ -31,6 +31,14 @@ spring:
     properties:
       hibernate.jdbc.time_zone: UTC
 
+  # Upgrade idempotente dello schema dei rimborsi (colonna `number`, stato EXECUTED) per i database già esistenti.
+  # Lo schema resta definito da db/init/01-init.sql (D1): questo script non fa nulla sui database nuovi.
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/upgrade-reimbursements.sql
+      separator: "^^^"
+
   servlet:
     multipart:
       max-file-size: 20MB      # limite del contratto

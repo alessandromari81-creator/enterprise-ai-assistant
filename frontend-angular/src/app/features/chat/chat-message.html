@@ -4,6 +4,20 @@
       <p class="break-words whitespace-pre-wrap">{{ message().text }}</p>
     </div>
 
+    <!-- Avviso (es. manca il verbo esplicito): nessuna azione è stata eseguita -->
+    @if (message().warning; as warning) {
+      <div
+        class="mt-2 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-300"
+        role="alert"
+        data-testid="warning-alert"
+      >
+        <svg class="mt-0.5 size-4 shrink-0 text-amber-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+        </svg>
+        <p class="font-medium">{{ warning }}</p>
+      </div>
+    }
+
     <!-- Azioni eseguite dall'IA (tool calling) -->
     @for (action of message().actions; track action.reimbursementId) {
       <div
@@ -14,11 +28,18 @@
           <path stroke-linecap="round" stroke-linejoin="round" d="m5 13 4 4L19 7" />
         </svg>
         <div>
-          <p class="font-medium">
-            Richiesta di rimborso creata: {{ action.amount | money: action.currency }}
-          </p>
-          @if (action.description) {
-            <p class="text-xs text-emerald-800">{{ action.description }}</p>
+          @if (action.type === 'REIMBURSEMENT_UPDATED') {
+            <p class="font-medium">Rimborso #{{ action.number }} aggiornato: {{ statusLabel(action.status) }}</p>
+            <p class="text-xs text-emerald-800">
+              {{ action.amount | money: action.currency }}@if (action.description) { · {{ action.description }} }
+            </p>
+          } @else {
+            <p class="font-medium">
+              Richiesta di rimborso #{{ action.number }} creata: {{ action.amount | money: action.currency }}
+            </p>
+            @if (action.description) {
+              <p class="text-xs text-emerald-800">{{ action.description }}</p>
+            }
           }
           <p class="text-xs text-emerald-700/80">ID {{ action.reimbursementId.slice(0, 8) }}…</p>
         </div>

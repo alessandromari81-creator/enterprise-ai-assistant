@@ -48,7 +48,8 @@ class ReimbursementApiTest extends IntegrationTest {
 
         Set<String> keys = new TreeSet<>();
         item.propertyNames().forEach(keys::add);
-        assertThat(keys).containsExactly("amount", "conversationId", "createdAt", "currency", "description", "id", "requestedBy", "status");
+        assertThat(keys).containsExactly("amount", "conversationId", "createdAt", "currency", "description", "id", "number", "requestedBy", "status");
+        assertThat(item.get("number").isIntegralNumber()).as("number è un intero").isTrue();
         assertThat(item.get("amount").isString()).as("Importo stringa, mai numero").isTrue();
         assertThat(item.get("amount").asString()).isEqualTo("50.00");
         assertThat(item.get("status").asString()).isEqualTo("OPEN");
@@ -84,6 +85,29 @@ class ReimbursementApiTest extends IntegrationTest {
 
         assertThat(amounts(response)).containsExactly("20.00");
         assertThat(response.get("totalItems").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    void ilFiltroPerStatoAccettaEseguito() throws Exception {
+        insert("10", "OPEN", Instant.now());
+        insert("20", "EXECUTED", Instant.now());
+
+        JsonNode response = body(mvc.perform(get("/api/reimbursements?status=EXECUTED")).andExpect(status().isOk()));
+
+        assertThat(amounts(response)).containsExactly("20.00");
+        assertThat(response.get("items").get(0).get("status").asString()).isEqualTo("EXECUTED");
+    }
+
+    @Test
+    void iNumeriDeiRimborsiSonoProgressiviEUnici() throws Exception {
+        insert("10", "OPEN", Instant.now());
+        insert("20", "OPEN", Instant.now());
+
+        JsonNode items = body(mvc.perform(get("/api/reimbursements")).andExpect(status().isOk())).get("items");
+
+        long a = items.get(0).get("number").asLong();
+        long b = items.get(1).get("number").asLong();
+        assertThat(Math.abs(a - b)).isEqualTo(1);
     }
 
     @Test

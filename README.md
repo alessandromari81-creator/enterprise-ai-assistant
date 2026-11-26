@@ -30,7 +30,7 @@ The point of the project is architectural: the same non-trivial AI problem solve
 |---|---|
 | **Ingest** | Drag & drop a PDF → text is extracted page by page, split into ~500-token chunks, embedded (768-d) and stored in pgvector. Duplicates are detected by SHA-256 (`409`). |
 | **Ask (RAG)** | Questions are answered *only* from retrieved excerpts, with `[file.pdf, p. N]` citations and clickable source badges. If the documents don't contain the answer, the assistant says so. |
-| **Act (tool calling)** | "Open a €40 dinner reimbursement" makes the model call a `createReimbursementRequest` tool that writes to PostgreSQL. The reimbursements table in the UI refreshes by itself. |
+| **Act (tool calling)** | Two tools. "Open a €40 dinner reimbursement" makes the model call `createReimbursementRequest`; "Mark reimbursement #2 as executed" / "Approve the dinner reimbursement" calls `updateReimbursementStatus` (approved, rejected, executed). Both write to PostgreSQL, and the table in the UI — with a coloured status badge per row (*In attesa, Approvato, Rifiutato, Eseguito*) — refreshes by itself. |
 | **Switch backend live** | A selector in the header flips the whole UI between Laravel (`:8000`) and Spring Boot (`:8080`) at runtime — same data, same index, same conversation. |
 
 Everything runs locally by default (Ollama + `qwen2.5:7b` + `nomic-embed-text`); OpenAI is a configuration switch.
@@ -106,7 +106,7 @@ sequenceDiagram
 
 ### 1. One vector index shared by PHP and Java
 
-The schema lives in **one place**, [`db/init/01-init.sql`](db/init/01-init.sql). Neither backend owns it: Hibernate runs with `ddl-auto: none`, and the Laravel migrations are idempotent (they no-op when the tables exist).
+The schema lives in **one place**, [`db/init/01-init.sql`](db/init/01-init.sql). Neither backend owns it: Hibernate runs with `ddl-auto: none`, and the Laravel migrations are idempotent (they no-op when the tables exist). A database created before the status feature is upgraded in place by an idempotent migration (`reimbursement_requests.number`, the `#1, #2…` identity, and the `EXECUTED` status) — Laravel runs it with `migrate`, Spring Boot with `spring.sql.init`; your data is kept.
 
 Spring AI's stock `PgVectorStore` creates its *own* table, which would have made every PDF indexed by one backend invisible to the other. Instead, `DocumentChunkVectorStore` implements Spring AI's `VectorStore` interface directly on top of the shared `document_chunks` table — so the Java code uses the standard API (`add`, `upsert`, `similaritySearch`, `SearchRequest`, filter expressions) while PHP reads and writes the very same rows.
 
@@ -116,10 +116,12 @@ Spring AI's stock `PgVectorStore` creates its *own* table, which would have made
 
 An LLM that can write to a database must not be trusted to decide *when*. While testing against a real 3B-parameter model, it opened a €50 reimbursement in response to a plain question about the dinner limit (copying the number from the documents), and a €200 one in response to *"Can I get €200 reimbursed for a dinner?"*. Prompts alone don't fix that, so the guardrails are **in code, independent of the model**, and identical in both backends:
 
-1. **Explicit-intent guard** — the user's latest message must be an actual *request* to create a refund: any natural creation verb (*open, add, create, insert, register, request, send…* / *apri, aggiungi, crea, inserisci, registra, richiedi, invia…*) or a short imperative with an amount (*"un rimborso da 120 euro per hotel"*). Questions, permission questions and hypotheticals (*"Can I get €200 reimbursed?"*, *"What's the hotel limit?"*) are never orders.
-2. **Amount-provenance guard** — the amount passed to the tool must literally appear in the user's own messages. The model may never take it from the documents or invent it.
+1. **Explicit-verb guard** — the user's latest message must be an actual *order* with an explicit verb: to create a refund (*open, add, create, insert, register, request, send…* / *apri, aggiungi, crea, inserisci, registra, richiedi, invia…*) or to change the status of an existing one (*mark, approve, reject, execute, update, close…* / *segna, approva, rifiuta, esegui, aggiorna, chiudi…*). Questions, permission questions and hypotheticals (*"Can I get €200 reimbursed?"*, *"What's the status of #2?"*) are never orders. **A phrase that looks like an order but has no verb** (*"allora un rimborso per hotel da 120 euro"*, *"rimborso #2 eseguito"*) executes nothing and doesn't even call the model: the reply tells the user which verbs to use, with an example built from their own message, and the UI shows an amber on-screen warning (`warning` field of the chat response).
+2. **Provenance guard** — what the tool acts on must literally come from the user's own message: the amount for a new refund; the `#number` or description keyword for a status change. For a status change the **new status is decided by the user's words**, not by the model (*approva* → approved, *rifiuta* → rejected, *esegui / segna come eseguito / paga / chiudi* → executed). The model may never take values from the documents or invent them.
 
-On top of those: a server-side cap (€10,000) enforced in the service **and** by a database `CHECK` constraint, requests always created as `OPEN` (a human approves), every tool outcome returned to the model as plain text, and the model's output rendered in the UI as text only (never `innerHTML`). Citations pointing at documents that were never retrieved are detected and replaced by an honest refusal. Because small models sometimes *narrate* a tool call instead of making it — and then announce a refund that was never created — two more safeguards are in code: a reply that claims success when nothing was saved is replaced by an honest message, and an unambiguous order with a single user-written amount is carried out by the backend itself, through the same guarded service, if the model fails to call the tool. All of this is covered by automated tests and was exercised with a real model.
+Status changes also go through business rules in the service: an unknown number, a keyword matching several refunds (*"more refunds match «cena»: #1, #3 — give the number"*), a refund already in that status, or in a final state (*executed* and *rejected* can't be modified) are refused with an explanation and nothing is changed.
+
+On top of those: a server-side cap (€10,000) enforced in the service **and** by a database `CHECK` constraint, requests always created as `OPEN` (a human approves), every tool outcome returned to the model as plain text, and the model's output rendered in the UI as text only (never `innerHTML`). Citations pointing at documents that were never retrieved are detected and replaced by an honest refusal. Because small models sometimes *narrate* a tool call instead of making it — and then announce a refund that was never created — two more safeguards are in code: a reply that claims success when nothing was saved is replaced by an honest message, and an unambiguous order (a single user-written amount, or a status change with one clear status and a reference) is carried out by the backend itself, through the same guarded service, if the model fails to call the tool. All of this is covered by automated tests and was exercised with a real model.
 
 ### 3. Local-first AI: Ollama, native or in Docker — or OpenAI
 
@@ -165,9 +167,9 @@ Same contract, same behaviour, same database — different idioms. Sizes are mea
 | Validation & errors | `FormRequest` + exception renderers in `bootstrap/app.php` | Manual validation in controllers + `@RestControllerAdvice` |
 | Config | `.env` + `config/eaa.php` | `application.yml` + `@ConfigurationProperties` records |
 | Provider switch | `AI_PROVIDER` in `.env` | `spring.ai.model.*` in `application.yml` (both starters on classpath, unused model types disabled) |
-| Schema | Idempotent migrations (+ shared init SQL) | None — shared init SQL, `ddl-auto: none` |
+| Schema | Idempotent migrations (+ shared init SQL) | Shared init SQL, `ddl-auto: none`; one small idempotent upgrade script (`spring.sql.init`) |
 | Application code | ≈ 2.1 k lines (comments included) | ≈ 2.1 k lines (comments included) |
-| Automated tests | **131** (PHPUnit, 1 303 assertions) | **82** (JUnit 5 + MockMvc) |
+| Automated tests | **214** (PHPUnit, 1 478 assertions) | **97** (JUnit 5 + MockMvc) |
 | Container image | 826 MB (dev image, bind-mounted source) | 803 MB (multi-stage, fat jar); app starts in ~4 s |
 | Gotchas hit | `artisan serve` ignores the container's env vars → use `php -S`; PHP warnings in the response body corrupt JSON → `display_errors=Off` | Spring AI 2.x dropped `toolNames()`; both starters on the classpath need unused model types set to `none` or the app won't boot without an API key; Tomcat needs `max-swallow-size` to return `413` on large uploads |
 | Honest take | Quickest to iterate; the AI part is a thin, readable layer | More ceremony, but the abstractions (`VectorStore`, tool callbacks, real tokenizer) are first-class and swappable |
@@ -202,9 +204,9 @@ Only one backend? Use just `--profile laravel` **or** `--profile springboot`. St
 ```bash
 docker compose up -d postgres
 docker compose exec postgres psql -U eaa -d eaa -c 'CREATE DATABASE eaa_test'          # once, for Laravel
-docker compose run --rm -e RUN_MIGRATIONS=false backend-laravel php artisan test      # 131 tests
-(cd backend-springboot && ./mvnw test)                                                 # 82 tests (creates its own DB)
-(cd frontend-angular && npm test)                                                      # 64 tests
+docker compose run --rm -e RUN_MIGRATIONS=false backend-laravel php artisan test      # 214 tests
+(cd backend-springboot && ./mvnw test)                                                 # 97 tests (creates its own DB)
+(cd frontend-angular && npm test)                                                      # 69 tests
 ```
 
 **Before your first commit — make sure no secrets, dependencies or temp files are tracked**
@@ -247,7 +249,7 @@ The root [`.gitignore`](.gitignore) blocks `.env*` (except `.env.example`), key 
 
 What was actually run (not just written):
 
-- **277 automated tests** across the three apps (131 + 82 + 64) — real PostgreSQL + pgvector, faked LLM.
+- **380 automated tests** across the three apps (214 + 97 + 69) — real PostgreSQL + pgvector, faked LLM.
 - **Live runs against a real local model** (`qwen2.5:7b`): ingestion, cited answers, tool calling, and the failure modes above — which is how the guardrails and the similarity threshold were found.
 - **Cross-backend parity checks:** 15 API responses (data + every validation/404/405 error) and 6 real upload cases (no file, `.txt`, renamed executable, corrupt PDF, 21 MB, 50 MB) compared between `:8000` and `:8080` — identical.
 - **Real-browser end-to-end** (Playwright + Chromium, run manually, not committed): drag & drop, loading indicator, source badges, table auto-refresh, runtime backend switch with `localStorage` persistence, error states, responsive layout down to 360 px. Run against both backends.

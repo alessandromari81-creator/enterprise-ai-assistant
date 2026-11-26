@@ -37,6 +37,66 @@ class ReimbursementService
     }
 
     /**
+     * Aggiorna lo stato di un rimborso ESISTENTE, indicato dal numero (#2) oppure da una parola della descrizione.
+     * È l'UNICO punto che modifica lo stato: il tool updateReimbursementStatus passa da qui.
+     *
+     * Regole: un rimborso già nello stato richiesto non si "aggiorna"; EXECUTED e REJECTED sono stati finali.
+     *
+     * @throws InvalidArgumentException con un messaggio leggibile dal modello e dall'utente
+     */
+    public function updateStatus(?int $number, ?string $keyword, ReimbursementStatus $newStatus): ReimbursementRequest
+    {
+        $target = $this->findTarget($number, $keyword);
+
+        if ($target->status === $newStatus) {
+            throw new InvalidArgumentException(sprintf('Il rimborso #%d è già «%s».', $target->number, $newStatus->label()));
+        }
+        if ($target->status->isFinal()) {
+            throw new InvalidArgumentException(sprintf(
+                'Il rimborso #%d è già «%s» e non può più essere modificato.',
+                $target->number,
+                $target->status->label(),
+            ));
+        }
+
+        $target->update(['status' => $newStatus]);
+
+        return $target->refresh();
+    }
+
+    /** Trova il rimborso per numero o per parola della descrizione (una sola corrispondenza, altrimenti errore). */
+    private function findTarget(?int $number, ?string $keyword): ReimbursementRequest
+    {
+        if ($number !== null) {
+            return ReimbursementRequest::query()->where('number', $number)->first()
+                ?? throw new InvalidArgumentException("Non esiste nessun rimborso con numero {$number}.");
+        }
+
+        $keyword = trim((string) $keyword);
+        if ($keyword === '') {
+            throw new InvalidArgumentException('Indica il numero del rimborso (quello dopo il #) oppure una parola della sua descrizione.');
+        }
+
+        $matches = ReimbursementRequest::query()
+            ->where('description', 'ilike', '%'.addcslashes($keyword, '\\%_').'%')
+            ->orderBy('number')
+            ->get();
+
+        if ($matches->isEmpty()) {
+            throw new InvalidArgumentException("Nessun rimborso ha «{$keyword}» nella descrizione.");
+        }
+        if ($matches->count() > 1) {
+            throw new InvalidArgumentException(sprintf(
+                'Più rimborsi corrispondono a «%s»: %s. Indica il numero del rimborso.',
+                $keyword,
+                '#'.$matches->pluck('number')->implode(', #'),
+            ));
+        }
+
+        return $matches->first();
+    }
+
+    /**
      * Converte l'importo in stringa decimale "50.00" evitando errori di virgola mobile.
      * Accetta anche "50,5" (virgola decimale italiana) e il simbolo €.
      */

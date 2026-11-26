@@ -7,6 +7,7 @@ import { ReimbursementsStore } from './reimbursements.store';
 
 const ROW: Reimbursement = {
   id: 'r1',
+  number: 1,
   amount: '40.00',
   currency: 'EUR',
   description: 'cena',

@@ -8,6 +8,7 @@ import it.portfolio.eaa.common.Iso;
  */
 public record ReimbursementDto(
         String id,
+        long number,
         String amount,
         String currency,
         String description,
@@ -19,6 +20,7 @@ public record ReimbursementDto(
     public static ReimbursementDto from(ReimbursementRequest r) {
         return new ReimbursementDto(
                 r.getId().toString(),
+                r.getNumber(),
                 r.getAmount().setScale(2, java.math.RoundingMode.HALF_UP).toPlainString(),
                 r.getCurrency(),
                 r.getDescription(),

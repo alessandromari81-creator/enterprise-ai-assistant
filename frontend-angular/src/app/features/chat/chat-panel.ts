@@ -39,7 +39,7 @@ export class ChatPanel {
    */
   protected readonly quickPrompts = [
     { icon: '📄', label: 'Limite massimo per la cena?', message: 'Qual è il limite massimo per una cena?' },
-    { icon: '🏨', label: 'Massimale rimborso hotel?', message: "Quanto posso spendere per l'hotel a notte?" },
+    { icon: '✅', label: 'Segna come eseguito il rimborso #1', message: 'Segna come eseguito il rimborso #1' },
     { icon: '💶', label: 'Apri rimborso da 40€ per cena', message: 'Aprimi un rimborso da 40€ per cena' },
     { icon: '❓', label: 'Posso farmi rimborsare 200€?', message: 'Posso farmi rimborsare 200€ per una cena?' },
   ] as const;

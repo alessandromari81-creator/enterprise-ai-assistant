@@ -72,12 +72,11 @@ class ReimbursementToolHandler {
             return "ERRORE: " + e.getMessage() + " Nessuna richiesta è stata creata. Chiedi all'utente un importo valido.";
         }
 
-        String amount = request.getAmount().toPlainString();
-        actions.add(new ActionDto(ActionDto.REIMBURSEMENT_CREATED, request.getId().toString(), amount,
-                request.getCurrency(), request.getDescription()));
+        ActionDto action = ActionDto.created(request);
+        actions.add(action);
 
-        return "OK: richiesta di rimborso creata. id=%s, importo=%s %s, stato=%s."
-                .formatted(request.getId(), amount, request.getCurrency(), request.getStatus().name());
+        return "OK: richiesta di rimborso #%d creata. id=%s, importo=%s %s, stato=%s."
+                .formatted(action.number(), request.getId(), action.amount(), request.getCurrency(), request.getStatus().name());
     }
 
     /**

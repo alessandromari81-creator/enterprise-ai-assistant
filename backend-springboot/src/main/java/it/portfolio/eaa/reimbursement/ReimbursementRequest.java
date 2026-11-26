@@ -11,7 +11,9 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
+import org.hibernate.annotations.Generated;
 import org.hibernate.annotations.UuidGenerator;
+import org.hibernate.generator.EventType;
 
 /**
  * Richiesta di rimborso (tabella reimbursement_requests), creata dal tool createReimbursementRequest
@@ -24,6 +26,11 @@ public class ReimbursementRequest {
     @Id
     @UuidGenerator(style = UuidGenerator.Style.VERSION_7)
     private UUID id;
+
+    /** Numero progressivo mostrato all'utente (#1, #2...): lo assegna il database (identity), Hibernate lo rilegge. */
+    @Column(insertable = false, updatable = false)
+    @Generated(event = EventType.INSERT)
+    private Long number;
 
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal amount;
@@ -55,6 +62,7 @@ public class ReimbursementRequest {
     }
 
     public UUID getId() { return id; }
+    public long getNumber() { return number == null ? 0 : number; }
     public BigDecimal getAmount() { return amount; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
     public String getCurrency() { return currency; }

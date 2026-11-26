@@ -3,8 +3,11 @@ package it.portfolio.eaa.reimbursement;
 import it.portfolio.eaa.config.EaaProperties;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Logica di business dei rimborsi. È l'UNICO punto che scrive su reimbursement_requests: il tool
@@ -44,6 +47,51 @@ public class ReimbursementService {
         request.setSourceConversationId(conversationId);
 
         return repository.saveAndFlush(request);
+    }
+
+    /**
+     * Aggiorna lo stato di un rimborso ESISTENTE, indicato dal numero (#2) oppure da una parola della descrizione.
+     * È l'UNICO punto che modifica lo stato. Regole: un rimborso già nello stato richiesto non si "aggiorna";
+     * EXECUTED e REJECTED sono stati finali. Stessi messaggi del backend Laravel.
+     *
+     * @throws IllegalArgumentException con un messaggio leggibile dal modello e dall'utente
+     */
+    @Transactional
+    public ReimbursementRequest updateStatus(Long number, String keyword, ReimbursementStatus newStatus) {
+        ReimbursementRequest target = findTarget(number, keyword);
+
+        if (target.getStatus() == newStatus) {
+            throw new IllegalArgumentException("Il rimborso #%d è già «%s».".formatted(target.getNumber(), newStatus.label()));
+        }
+        if (target.getStatus().isFinal()) {
+            throw new IllegalArgumentException("Il rimborso #%d è già «%s» e non può più essere modificato."
+                    .formatted(target.getNumber(), target.getStatus().label()));
+        }
+
+        target.setStatus(newStatus);
+        return repository.saveAndFlush(target);
+    }
+
+    private ReimbursementRequest findTarget(Long number, String keyword) {
+        if (number != null) {
+            return repository.findByNumber(number)
+                    .orElseThrow(() -> new IllegalArgumentException("Non esiste nessun rimborso con numero " + number + "."));
+        }
+
+        String word = keyword == null ? "" : keyword.strip();
+        if (word.isEmpty()) {
+            throw new IllegalArgumentException("Indica il numero del rimborso (quello dopo il #) oppure una parola della sua descrizione.");
+        }
+
+        List<ReimbursementRequest> matches = repository.findByDescriptionContainingIgnoreCaseOrderByNumberAsc(word);
+        if (matches.isEmpty()) {
+            throw new IllegalArgumentException("Nessun rimborso ha «" + word + "» nella descrizione.");
+        }
+        if (matches.size() > 1) {
+            throw new IllegalArgumentException("Più rimborsi corrispondono a «%s»: %s. Indica il numero del rimborso.".formatted(
+                    word, matches.stream().map(r -> "#" + r.getNumber()).collect(Collectors.joining(", "))));
+        }
+        return matches.get(0);
     }
 
     /**

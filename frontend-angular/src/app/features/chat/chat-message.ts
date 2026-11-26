@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
+import { ReimbursementStatus } from '../../core/api/models';
 import { ChatMessage } from '../../core/state/chat.store';
 import { MoneyPipe } from '../../shared/format.pipes';
 
@@ -37,6 +38,10 @@ export class ChatMessageView {
 
   protected toggle(chunkId: string): void {
     this.expandedChunkId.update((current) => (current === chunkId ? null : chunkId));
+  }
+
+  protected statusLabel(status: ReimbursementStatus): string {
+    return { OPEN: 'In attesa', APPROVED: 'Approvato', REJECTED: 'Rifiutato', EXECUTED: 'Eseguito' }[status];
   }
 
   /** 0.8425 -> "84%". */

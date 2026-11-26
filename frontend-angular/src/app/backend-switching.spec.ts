@@ -15,7 +15,7 @@ const docs = (name: string) => ({
   items: [{ id: 'd', filename: name, sizeBytes: 1, pageCount: 1, chunkCount: 1, status: 'READY', errorMessage: null, createdAt: '2026-11-25T14:16:22Z' }],
 });
 const reimbursements = (amount: string) => ({
-  items: [{ id: 'r', amount, currency: 'EUR', description: 'x', status: 'OPEN', requestedBy: 'demo-user', conversationId: null, createdAt: '2026-11-25T14:17:11Z' }],
+  items: [{ id: 'r', number: 1, amount, currency: 'EUR', description: 'x', status: 'OPEN', requestedBy: 'demo-user', conversationId: null, createdAt: '2026-11-25T14:17:11Z' }],
   page: 0, size: 50, totalItems: 1, totalPages: 1,
 });
 

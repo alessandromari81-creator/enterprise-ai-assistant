@@ -7,8 +7,8 @@ import { BadgeTone, StatusBadge } from '../../shared/status-badge';
 
 /**
  * Colonna destra: tabella delle richieste di rimborso.
- * Si aggiorna da sola: ChatStore chiama `store.refresh()` quando l'IA crea un rimborso, e la riga
- * nuova resta evidenziata per qualche secondo (`highlightedIds`).
+ * Si aggiorna da sola: ChatStore chiama `store.refresh()` quando l'IA crea o aggiorna un rimborso, e la riga
+ * interessata resta evidenziata per qualche secondo (`highlightedIds`).
  */
 @Component({
   selector: 'app-reimbursements-panel',
@@ -29,10 +29,10 @@ export class ReimbursementsPanel {
   }
 
   protected statusLabel(status: ReimbursementStatus): string {
-    return { OPEN: 'In attesa', APPROVED: 'Approvata', REJECTED: 'Rifiutata' }[status];
+    return { OPEN: 'In attesa', APPROVED: 'Approvato', REJECTED: 'Rifiutato', EXECUTED: 'Eseguito' }[status];
   }
 
   protected statusTone(status: ReimbursementStatus): BadgeTone {
-    return { OPEN: 'amber', APPROVED: 'green', REJECTED: 'red' }[status] as BadgeTone;
+    return { OPEN: 'amber', APPROVED: 'green', REJECTED: 'red', EXECUTED: 'blue' }[status] as BadgeTone;
   }
 }

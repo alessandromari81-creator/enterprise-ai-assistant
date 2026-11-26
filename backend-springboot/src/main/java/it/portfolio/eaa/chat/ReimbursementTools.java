@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Description;
 
 /**
- * Registrazione del tool "createReimbursementRequest" (Function Calling).
+ * Registrazione dei due tool dei rimborsi (Function Calling): "createReimbursementRequest" e "updateReimbursementStatus".
  *
  * Sono due bean:
  *  1. la FUNZIONE, un @Bean con @Description: il testo di @Description è ciò che il modello legge per capire
@@ -35,6 +35,31 @@ class ReimbursementTools {
     BiFunction<ReimbursementToolArgs, ToolContext, String> createReimbursementRequest(ReimbursementService service) {
         ReimbursementToolHandler handler = new ReimbursementToolHandler(service);
         return handler::execute;
+    }
+
+    static final String STATUS_TOOL_NAME = "updateReimbursementStatus";
+
+    @Bean(STATUS_TOOL_NAME)
+    @Description("Aggiorna lo stato di un rimborso già esistente (approvato, rifiutato o eseguito). "
+            + "Da usare quando l'utente ordina di segnare, approvare, rifiutare, eseguire, aggiornare o chiudere un rimborso, "
+            + "indicandolo con il numero (quello dopo il #) oppure con una parola della sua descrizione. "
+            + "Non va usato per domande.")
+    BiFunction<ReimbursementStatusToolArgs, ToolContext, String> updateReimbursementStatus(ReimbursementService service) {
+        ReimbursementStatusToolHandler handler = new ReimbursementStatusToolHandler(service);
+        return handler::execute;
+    }
+
+    @Bean
+    ToolCallback updateReimbursementStatusTool(
+            BiFunction<ReimbursementStatusToolArgs, ToolContext, String> updateReimbursementStatus,
+            ApplicationContext context) {
+
+        String description = context.findAnnotationOnBean(STATUS_TOOL_NAME, Description.class).value();
+
+        return FunctionToolCallback.builder(STATUS_TOOL_NAME, updateReimbursementStatus)
+                .description(description)
+                .inputType(ReimbursementStatusToolArgs.class)
+                .build();
     }
 
     @Bean

@@ -14,6 +14,8 @@ export interface ChatMessage {
   sources: Source[];
   /** Azioni eseguite dall'IA con questo messaggio (es. rimborso creato). */
   actions: ChatAction[];
+  /** Avviso da mostrare a video sotto la risposta (es. manca il verbo esplicito). */
+  warning: string | null;
   /** true se il messaggio è un errore (backend irraggiungibile, ecc.), non una risposta dell'IA. */
   error: boolean;
 }
@@ -21,7 +23,7 @@ export interface ChatMessage {
 /**
  * Stato della chat.
  *
- * Quando la risposta contiene azioni (l'IA ha aperto un rimborso) ricarica la tabella dei rimborsi:
+ * Quando la risposta contiene azioni (l'IA ha aperto o aggiornato un rimborso) ricarica la tabella dei rimborsi:
  * è il collegamento "chat → tabella in tempo reale".
  */
 @Injectable({ providedIn: 'root' })
@@ -42,7 +44,7 @@ export class ChatStore {
       return;
     }
 
-    this.push({ role: 'user', text, sources: [], actions: [], error: false });
+    this.push({ role: 'user', text, sources: [], actions: [], warning: null, error: false });
     this.sending.set(true);
 
     try {
@@ -56,6 +58,7 @@ export class ChatStore {
         text: response.answer,
         sources: response.sources,
         actions: response.actions,
+        warning: response.warning ?? null,
         error: false,
       });
 
@@ -72,7 +75,7 @@ export class ChatStore {
         message = 'La conversazione non esiste più sul server. Ne inizio una nuova: riprova a inviare il messaggio.';
       }
 
-      this.push({ role: 'assistant', text: message, sources: [], actions: [], error: true });
+      this.push({ role: 'assistant', text: message, sources: [], actions: [], warning: null, error: true });
     } finally {
       this.sending.set(false);
     }

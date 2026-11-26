@@ -3,6 +3,7 @@
 namespace App\Services\Chat;
 
 use App\Enums\ChatRole;
+use App\Enums\ReimbursementStatus;
 use App\Exceptions\ApiProblem;
 use App\Models\ChatMessage;
 use App\Services\Rag\ChunkRetriever;
@@ -13,24 +14,31 @@ use App\Support\Iso;
 use Illuminate\Http\Client\HttpClientException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 use Prism\Prism\Exceptions\PrismException;
 use Prism\Prism\Facades\Prism;
 use Prism\Prism\ValueObjects\Messages\AssistantMessage;
 use Prism\Prism\ValueObjects\Messages\UserMessage;
 
 /**
- * Orchestra un turno di chat: RAG + eventuale azione (tool calling).
+ * Orchestra un turno di chat: RAG + eventuali azioni (tool calling).
  *
+ *   0. frase che SEMBRA un ordine ma senza verbo esplicito -> avviso immediato, nessuna azione, nessun modello
  *   1. risolve la conversazione (nuova o esistente)
  *   2. embedding della domanda -> ricerca vettoriale (top-k, soglia di similarità)
- *   3. system prompt con estratti + storico + messaggio -> modello, con il tool disponibile
- *   4. calcola sources[] e actions[] e salva i due messaggi
+ *   3. system prompt con estratti + storico + messaggio -> modello, con i due tool disponibili
+ *   4. reti di sicurezza (ordine diretto non eseguito dal modello, conferme false, citazioni inventate)
+ *   5. calcola sources[], actions[], warning e salva i due messaggi
  */
 class ChatService
 {
     /** Risposta onesta quando il modello dichiara un rimborso creato ma nessun rimborso è stato salvato. */
     public const NOT_CREATED = 'Non sono riuscito a registrare il rimborso: nessuna richiesta è stata creata. '
         .'Riprova indicando importo e motivo, ad esempio «Apri un rimborso da 40 € per cena».';
+
+    /** Risposta onesta quando il modello dichiara uno stato aggiornato ma nessun rimborso è stato modificato. */
+    public const NOT_UPDATED = 'Non sono riuscito ad aggiornare il rimborso: nessuno stato è stato modificato. '
+        .'Riprova indicando il numero, ad esempio «Segna come eseguito il rimborso #1».';
 
     public function __construct(
         private readonly EmbeddingService $embeddings,
@@ -44,7 +52,8 @@ class ChatService
      * @param  list<string>|null  $documentIds
      * @return array{
      *     conversationId: string, messageId: string, answer: string,
-     *     sources: list<array<string, mixed>>, actions: list<array<string, mixed>>, createdAt: string
+     *     sources: list<array<string, mixed>>, actions: list<array<string, mixed>>,
+     *     warning: ?string, createdAt: string
      * }
      *
      * @throws ApiProblem 404 conversazione sconosciuta, 502 provider LLM non raggiungibile
@@ -54,6 +63,14 @@ class ChatService
         $conversationId = $this->resolveConversation($conversationId);
         $userMessageAt = now();
 
+        // --- 0. Frase senza verbo esplicito -------------------------------------------------
+        // "allora un rimborso per hotel da 120 euro", "rimborso #2 eseguito": non si esegue nulla e non si
+        // interpella il modello. Si risponde subito dicendo concretamente quali verbi usare (e con un avviso).
+        $hint = ReimbursementIntent::verblessHint($message);
+        if ($hint !== null) {
+            return $this->finish($conversationId, $message, $userMessageAt, $hint['answer'], [], [], $hint['warning']);
+        }
+
         // --- 1. Retrieval -----------------------------------------------------------------
         $chunks = $this->retriever->search(
             $this->embeddings->embed($message),
@@ -62,16 +79,17 @@ class ChatService
             $documentIds,
         );
 
-        // --- 2. Generazione (con tool) ----------------------------------------------------
+        // --- 2. Generazione (con i due tool) ----------------------------------------------
         $history = $this->history($conversationId);
-        $tool = new ReimbursementTool($this->reimbursements, $conversationId, $this->userTexts($history, $message), $message);
+        $createTool = new ReimbursementTool($this->reimbursements, $conversationId, $this->userTexts($history, $message), $message);
+        $statusTool = new ReimbursementStatusTool($this->reimbursements, $message);
 
         try {
             $response = Prism::text()
                 ->using((string) config('eaa.ai.provider'), (string) config('eaa.ai.chat_model'))
                 ->withSystemPrompt($this->prompts->system($chunks))
                 ->withMessages([...$history, new UserMessage($message)])
-                ->withTools([$tool->build()])
+                ->withTools([$createTool->build(), $statusTool->build()])
                 ->withMaxSteps((int) config('eaa.ai.max_steps'))
                 ->usingTemperature((float) config('eaa.ai.temperature'))
                 ->asText();
@@ -80,54 +98,37 @@ class ChatService
         }
 
         // --- 3. Esito: azioni, risposta, fonti --------------------------------------------
-        $actions = $tool->actions();
+        $actions = array_merge($createTool->actions(), $statusTool->actions());
         $answer = trim($response->text);
+        $failedAction = false;
 
-        // Rete di sicurezza: ordine esplicito con UN importo scritto dall'utente, ma il modello non ha chiamato il
-        // tool (provato dal vivo con "allora un rimborso per hotel da 120 euro": a volte lo NARRA invece di
-        // eseguirlo). Il backend crea il rimborso con lo stesso servizio e le stesse barriere: importo scritto
-        // dall'utente per costruzione, tetto e CHECK del DB, stato OPEN. Non è il modello a decidere: è l'utente
-        // ad aver dato un ordine non ambiguo.
-        $notCreated = false;
+        // Rete di sicurezza: ORDINE ESPLICITO e non ambiguo, ma il modello non ha chiamato il tool (a volte lo
+        // NARRA invece di eseguirlo). Il backend esegue la stessa operazione con lo stesso servizio e le stesse
+        // barriere: l'importo / il riferimento / lo stato sono per costruzione quelli scritti dall'utente.
         if ($actions === []) {
-            $direct = ReimbursementIntent::parseDirectRequest($message);
-            if ($direct !== null) {
-                try {
-                    $created = $this->reimbursements->create($direct['amount'], $direct['description'], $conversationId);
-                    $actions[] = [
-                        'type' => 'REIMBURSEMENT_CREATED',
-                        'reimbursementId' => $created->id,
-                        'amount' => $created->amount,
-                        'currency' => $created->currency,
-                        'description' => $created->description,
-                    ];
-                    $answer = $this->confirmation($actions[0]);
-                } catch (\InvalidArgumentException $e) {
-                    // Es. importo oltre il tetto: nessun rimborso, e l'utente ne conosce il motivo.
-                    $answer = 'Non è stato creato nessun rimborso: '.$e->getMessage();
-                    $notCreated = true;
-                }
+            [$actions, $answer, $failedAction] = $this->safetyNet($message, $conversationId, $answer);
+        }
+
+        // Dopo un'azione riuscita la risposta deve confermarla. I modelli piccoli sbagliano in due modi: testo
+        // vuoto, oppure la frase di rifiuto "non ho trovato nei documenti". In entrambi i casi si usa una conferma
+        // deterministica costruita dal codice con i dati realmente salvati.
+        if ($actions !== [] && ($answer === '' || str_contains($answer, PromptBuilder::REFUSAL))) {
+            $answer = ChatActions::confirmation($actions[0]);
+        }
+
+        // Conferma FALSA: la richiesta era un ordine, nulla è stato salvato, ma la risposta dice il contrario
+        // (il modello ha scritto a parole una chiamata al tool con un risultato inventato).
+        if ($actions === [] && ! $failedAction) {
+            if (ReimbursementIntent::isActionRequest($message) && ReimbursementIntent::claimsCreation($answer)) {
+                $answer = self::NOT_CREATED;
+                $failedAction = true;
+            } elseif (ReimbursementIntent::isStatusUpdateRequest($message) && ReimbursementIntent::claimsUpdate($answer)) {
+                $answer = self::NOT_UPDATED;
+                $failedAction = true;
             }
         }
 
-        // Dopo un'azione riuscita la risposta deve confermarla. I modelli piccoli sbagliano in due modi
-        // (visti dal vivo con llama3.2): testo vuoto, oppure la frase di rifiuto "non ho trovato nei
-        // documenti" perché gli estratti non parlano di rimborsi. In entrambi i casi si usa una
-        // conferma deterministica costruita dal codice con i dati realmente salvati.
-        if ($actions !== [] && ($answer === '' || str_contains($answer, PromptBuilder::REFUSAL))) {
-            $answer = $this->confirmation($actions[0]);
-        }
-        // Conferma FALSA: la richiesta era un ordine, nessun rimborso è stato salvato, ma la risposta dice il
-        // contrario (il modello ha scritto a parole una chiamata al tool con un risultato inventato). Si
-        // sostituisce con un messaggio onesto: all'utente non deve mai arrivare un'azione mai avvenuta.
-        if ($actions === [] && ! $notCreated && ReimbursementIntent::isActionRequest($message) && ReimbursementIntent::claimsCreation($answer)) {
-            $answer = self::NOT_CREATED;
-            $notCreated = true;
-        }
-
         // Citazione inventata: senza estratti recuperati nessuna risposta può citare un documento.
-        // Visto dal vivo con qwen2.5:7b: contesto vuoto -> "[prenotazione_aeroporto.pdf, p. 2]", un
-        // file mai caricato. Meglio il rifiuto onesto di una fonte falsa.
         if ($chunks === [] && $actions === [] && preg_match('/\[[^\]]*\.pdf\s*,?\s*(?:pagina|pag\.?|p\.?)\s*\d+/iu', $answer)) {
             $answer = PromptBuilder::REFUSAL;
         }
@@ -138,10 +139,58 @@ class ChatService
 
         $sources = array_map(
             fn (RetrievedChunk $c) => $this->sourceToArray($c),
-            $this->sourceResolver->resolve($answer, $chunks, $actions !== [] || $notCreated),
+            $this->sourceResolver->resolve($answer, $chunks, $actions !== [] || $failedAction),
         );
 
-        // --- 4. Persistenza (solo a esito positivo: se l'LLM fallisce non salviamo mezze conversazioni)
+        return $this->finish($conversationId, $message, $userMessageAt, $answer, $sources, $actions, null);
+    }
+
+    /**
+     * Esegue direttamente un ordine esplicito e non ambiguo che il modello non ha eseguito.
+     *
+     * @return array{0: list<array<string, mixed>>, 1: string, 2: bool} [azioni, risposta, azione fallita]
+     */
+    private function safetyNet(string $message, string $conversationId, string $answer): array
+    {
+        // Creare un rimborso: un solo importo scritto dall'utente.
+        $create = ReimbursementIntent::parseDirectRequest($message);
+        if ($create !== null) {
+            try {
+                $created = $this->reimbursements->create($create['amount'], $create['description'], $conversationId);
+                $action = ChatActions::created($created);
+
+                return [[$action], ChatActions::confirmation($action), false];
+            } catch (InvalidArgumentException $e) {
+                return [[], 'Non è stato creato nessun rimborso: '.$e->getMessage(), true];
+            }
+        }
+
+        // Aggiornare lo stato: un solo stato richiesto e un riferimento scritto dall'utente.
+        $update = ReimbursementIntent::parseDirectUpdate($message);
+        if ($update !== null) {
+            try {
+                $updated = $this->reimbursements->updateStatus($update['number'], $update['keyword'], ReimbursementStatus::from($update['status']));
+                $action = ChatActions::updated($updated);
+
+                return [[$action], ChatActions::confirmation($action), false];
+            } catch (InvalidArgumentException $e) {
+                return [[], 'Non è stato aggiornato nessun rimborso: '.$e->getMessage(), true];
+            }
+        }
+
+        return [[], $answer, false];
+    }
+
+    /**
+     * Salva i due messaggi (solo a esito positivo: se l'LLM fallisce non si salvano mezze conversazioni) e
+     * compone la risposta del contratto.
+     *
+     * @param  list<array<string, mixed>>  $sources
+     * @param  list<array<string, mixed>>  $actions
+     * @return array<string, mixed>
+     */
+    private function finish(string $conversationId, string $message, $userMessageAt, string $answer, array $sources, array $actions, ?string $warning): array
+    {
         $assistant = DB::transaction(function () use ($conversationId, $message, $userMessageAt, $answer, $sources, $actions) {
             ChatMessage::query()->create([
                 'conversation_id' => $conversationId,
@@ -166,6 +215,7 @@ class ChatService
             'answer' => $answer,
             'sources' => $sources,
             'actions' => $actions,
+            'warning' => $warning,
             'createdAt' => Iso::utc($assistant->created_at),
         ];
     }
@@ -206,24 +256,8 @@ class ChatService
     }
 
     /**
-     * Conferma standard di una richiesta di rimborso creata.
-     *
-     * @param  array{amount: string, currency: string, description: ?string, reimbursementId: string}  $action
-     */
-    private function confirmation(array $action): string
-    {
-        return sprintf(
-            'Ho aperto la richiesta di rimborso di %s %s%s. Identificativo: %s. Resta in stato OPEN in attesa di approvazione.',
-            number_format((float) $action['amount'], 2, ',', '.'),
-            $action['currency'],
-            $action['description'] !== null ? " ({$action['description']})" : '',
-            $action['reimbursementId'],
-        );
-    }
-
-    /**
-     * I soli messaggi scritti dall'UTENTE (storico + corrente): servono al tool dei rimborsi per
-     * verificare che l'importo non sia stato inventato dal modello.
+     * I soli messaggi scritti dall'UTENTE (storico + corrente): servono al tool di creazione per verificare che
+     * l'importo non sia stato inventato dal modello.
      *
      * @param  list<UserMessage|AssistantMessage>  $history
      * @return list<string>

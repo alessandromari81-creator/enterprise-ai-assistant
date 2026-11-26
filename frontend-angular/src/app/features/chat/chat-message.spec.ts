@@ -17,6 +17,7 @@ const BASE: ChatMessage = {
     },
   ],
   actions: [],
+  warning: null,
   error: false,
 };
 
@@ -62,18 +63,54 @@ describe('ChatMessageView', () => {
         {
           type: 'REIMBURSEMENT_CREATED',
           reimbursementId: '01a21314-5296-70cc',
+          number: 3,
           amount: '40.00',
           currency: 'EUR',
           description: 'cena',
+          status: 'OPEN',
         },
       ],
     });
 
     const card = el().querySelector('[data-testid="action-card"]');
-    expect(card?.textContent).toContain('Richiesta di rimborso creata');
+    expect(card?.textContent).toContain('Richiesta di rimborso #3 creata');
     expect(card?.textContent).toContain('40,00');
     expect(card?.textContent).toContain('cena');
     expect(el().querySelector('[data-testid="source-badge"]')).toBeNull();
+  });
+
+  it('mostra la scheda di un rimborso aggiornato con il nuovo stato', async () => {
+    await render({
+      ...BASE,
+      text: 'Fatto.',
+      sources: [],
+      actions: [
+        {
+          type: 'REIMBURSEMENT_UPDATED',
+          reimbursementId: '01a21314-5296-70cc',
+          number: 2,
+          amount: '40.00',
+          currency: 'EUR',
+          description: 'cena',
+          status: 'EXECUTED',
+        },
+      ],
+    });
+
+    const card = el().querySelector('[data-testid="action-card"]');
+    expect(card?.textContent).toContain('Rimborso #2 aggiornato: Eseguito');
+    expect(card?.textContent).toContain('40,00');
+  });
+
+  it('mostra l\'avviso a video quando il backend lo restituisce, e non altrimenti', async () => {
+    await render({ ...BASE, sources: [], warning: 'Manca un verbo esplicito: nessuna azione eseguita.' });
+
+    const alert = el().querySelector('[data-testid="warning-alert"]');
+    expect(alert?.textContent).toContain('Manca un verbo esplicito');
+    expect(alert?.getAttribute('role')).toBe('alert');
+
+    await render(BASE);
+    expect(el().querySelector('[data-testid="warning-alert"]')).toBeNull();
   });
 
   it('il testo del modello è mostrato come testo, mai interpretato come HTML', async () => {

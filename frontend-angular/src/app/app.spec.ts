@@ -34,7 +34,7 @@ describe('App (dashboard a 3 colonne)', () => {
     http.expectOne(`${BASE}/reimbursements?page=0&size=50`).flush({
       items: [
         {
-          id: 'r1', amount: '40.00', currency: 'EUR', description: 'cena', status: 'OPEN',
+          id: 'r1', number: 1, amount: '40.00', currency: 'EUR', description: 'cena', status: 'OPEN',
           requestedBy: 'demo-user', conversationId: null, createdAt: '2026-11-25T14:17:11Z',
         },
       ],
