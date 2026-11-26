@@ -2,7 +2,7 @@
 
 # Enterprise AI Assistant
 
-https://github.com/user-attachments/assets/fd6c4670-d545-4ca0-865a-21a9a61aae20
+[https://github.com/user-attachments/assets/fd6c4670-d545-4ca0-865a-21a9a61aae20](https://github.com/user-attachments/assets/1634dc6b-77cb-4de9-973e-66fcf13ce5a9)
 
 **Un sistema multi-backend di RAG e azioni agentiche.** Un unico frontend Angular 22 dialoga con **due backend intercambiabili** — **Laravel 13 (PHP)** e **Spring Boot 4 + Spring AI 2.1 (Java)** — che implementano lo *stesso* contratto API sopra lo *stesso* database PostgreSQL + pgvector. Carichi un PDF di policy, fai domande e ottieni **risposte con citazioni a livello di pagina**, oppure chiedi all'assistente di **compiere un'azione** ("apri un rimborso da 40 € per la cena") — in sicurezza.
 
