@@ -562,7 +562,25 @@ Per usarlo dal frontend: scegliere **Spring Boot** nel selettore Backend dell'in
 - **Non verificato**: build visiva nel browser vero (Playwright) del nuovo badge/avviso — coperti dai test Vitest ma non da un E2E in questo passo; OpenAPI senza linter.
 - README (inglese e italiano) aggiornati: due tool, quattro stati con badge, obbligo del verbo con avviso a video, migrazione dello schema, numero dei test.
 
-### Passo 10 — *(da definire: lo indica l'utente)*
+### Passo 10 — Nome fittizio nel PDF di prova
+
+- **Perché**: il PDF `backend-laravel/tests/Fixtures/policy_rimborsi.pdf` citava un nome d'azienda di fantasia molto comune, che potrebbe coincidere con un'azienda reale. Sostituito con **"Azienda Esempio S.r.l."**, chiaramente generico.
+- **Come**: il PDF è scritto a mano (stream non compresso). Cambiando il testo sono cambiate le lunghezze, quindi ho ricalcolato `/Length` degli stream, gli offset della tabella `xref` e `startxref` con uno script temporaneo (non versionato). Il file passa da 1312 a 1323 byte.
+- **Verifica**: riletto con `smalot/pdfparser` (lo stesso parser del backend): 2 pagine, testo identico a prima tranne il nome. Nessun altro file del repo conteneva quel nome (`git grep`). I test Laravel/Spring/Angular **non** sono stati rilanciati: nessuno legge questo file (usano PDF generati o dati finti), ma non l'ho verificato eseguendoli, perché i container sono fermi e il PHP del Mac è 8.2 (serve 8.4).
+- **Nota**: il documento già caricato nel DB di sviluppo dell'utente (`policy_rimborsi.pdf`) contiene ancora il vecchio testo; non è stato toccato. Per aggiornarlo basta rieliminarlo e ricaricarlo dall'interfaccia.
+
+### Passo 11 — Tabella rimborsi più larga e nuovo video di demo
+
+- **Problema segnalato dall'utente**: nella tabella dei rimborsi la colonna "Stato" era tagliata ("In atte…", "Esegu…"). Causa: con la colonna "N." aggiunta al Passo 9 il contenuto superava la larghezza fissa del pannello (27 rem) e il resto finiva nello scroll orizzontale nascosto. Lo avevo introdotto io e non l'avevo notato: i test di componente non misurano le larghezze.
+- **Correzione**: colonne della pagina da `21rem / 1fr / 27rem` a `20rem / 1fr / 30rem`; margini laterali ridotti nella tabella (`pl-3`/`pr-3`) e descrizione troncata a 6,5 rem. **Verifica nel browser vero** (Playwright) a 1024, 1280 e 1440 px, anche nel caso peggiore (riga clone con `#1234`, `10.000,00 €`, "Approvato"): nessun overflow (`scrollWidth` = `clientWidth` = 480). I 69 test Angular passano ancora.
+- **Nuovo `docs/demo.mp4`** (1280×720, ~107 s, 1,16 MB, senza audio), registrato con lo stesso metodo del Passo 6 (Playwright `recordVideo` + cursore disegnato + didascalie; attese del modello accelerate ×12 con la didascalia che lo dichiara; ffmpeg statico di `imageio-ffmpeg` fuori dal progetto). Il copione è nuovo: domanda con fonte → creazione di un rimborso → **aggiornamento di stato con "Segna come eseguito il rimborso #N"** (badge "Eseguito") → **frase senza verbo con avviso ambra** → cambio backend Laravel → Spring Boot con gli stessi dati. Fotogrammi controllati a vista.
+- **Differenza dal Passo 6**: lo script vecchio cancellava `chat_messages` e `reimbursement_requests` prima di registrare. Ora **non cancella nulla**: i rimborsi dell'utente restano e le righe create dalla registrazione sono state eliminate dopo, riconosciute dalla conversazione che le ha create.
+- **Problemi incontrati**: (1) due tentativi falliti per timeout. Il passo "crea rimborso" fa **due** chiamate al modello (decisione del tool, poi risposta) e su CPU la seconda può superare `PRISM_REQUEST_TIMEOUT=180`: l'API risponde 502, **il rimborso però è già stato creato** e i messaggi non vengono salvati. Per la registrazione ho alzato il timeout a 600 s con un file compose temporaneo fuori dal progetto e poi ripristinato il container. È un limite reale del backend su CPU (rimborso creato ma errore all'utente), **non corretto** in questo passo. (2) La chat usata dall'utente durante la registrazione rallenta tutto: Ollama su CPU serve una richiesta alla volta.
+- **Errori miei da segnalare**: avevo detto all'utente che non potevo registrare il video, mentre nel diario (Passo 6) risultava che l'avevo già fatto; e le prime registrazioni lasciarono righe di prova (#11–#14, #16, #17) che ho eliminato una per una dopo averne verificato la conversazione di origine. Il rimborso #15 ("Tax per il viaggio di lavoro") è dell'utente e non è stato toccato.
+- **Nel video si vedono dati dell'utente**: il documento "Politica Rimborso Spese.pdf" e il rimborso #15. Non sono stati modificati.
+- **Il README** contiene il video come link `user-attachments` di GitHub (Passo 6): sostituire `docs/demo.mp4` nel repository **non** aggiorna il player; va ricaricato il nuovo video nell'editor del README su github.com.
+
+### Passo 12 — *(da definire: lo indica l'utente)*
 
 ---
 

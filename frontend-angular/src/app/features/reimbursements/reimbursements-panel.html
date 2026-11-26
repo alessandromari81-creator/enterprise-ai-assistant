@@ -36,11 +36,11 @@
         <caption class="sr-only">Elenco delle richieste di rimborso, dalla più recente</caption>
         <thead class="sticky top-0 bg-slate-50 text-xs font-medium text-slate-500 uppercase">
           <tr>
-            <th scope="col" class="px-4 py-2">N.</th>
+            <th scope="col" class="py-2 pr-2 pl-3">N.</th>
             <th scope="col" class="px-2 py-2">Data</th>
             <th scope="col" class="px-2 py-2 text-right">Importo</th>
             <th scope="col" class="px-2 py-2">Descrizione</th>
-            <th scope="col" class="px-4 py-2">Stato</th>
+            <th scope="col" class="py-2 pr-3 pl-2">Stato</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100">
@@ -50,15 +50,15 @@
               [class]="store.highlightedIds().has(item.id) ? 'bg-emerald-100' : 'bg-white'"
               data-testid="reimbursement-row"
             >
-              <td class="px-4 py-2.5 font-medium whitespace-nowrap text-slate-900" data-testid="reimbursement-number">#{{ item.number }}</td>
+              <td class="py-2.5 pr-2 pl-3 font-medium whitespace-nowrap text-slate-900" data-testid="reimbursement-number">#{{ item.number }}</td>
               <td class="px-2 py-2.5 whitespace-nowrap text-slate-600">{{ item.createdAt | dateTime }}</td>
               <td class="px-2 py-2.5 text-right font-medium whitespace-nowrap text-slate-900">
                 {{ item.amount | money: item.currency }}
               </td>
-              <td class="max-w-[9rem] truncate px-2 py-2.5 text-slate-600" [title]="item.description ?? ''">
+              <td class="max-w-[6.5rem] truncate px-2 py-2.5 text-slate-600" [title]="item.description ?? ''">
                 {{ item.description || '—' }}
               </td>
-              <td class="px-4 py-2.5">
+              <td class="py-2.5 pr-3 pl-2">
                 <app-status-badge [tone]="statusTone(item.status)">{{ statusLabel(item.status) }}</app-status-badge>
               </td>
             </tr>
