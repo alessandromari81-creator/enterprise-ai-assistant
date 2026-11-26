@@ -27,17 +27,6 @@ class ReimbursementTool
     /**
      * @param  list<string>  $userTexts  i messaggi DELL'UTENTE (il corrente e quelli precedenti della
      *                                   conversazione): servono a verificare che l'importo non sia inventato
-     */
-    /**
-     * Verbi che indicano una RICHIESTA ESPLICITA di aprire/creare/inviare (apri, aprimi, aprirmi, crea,
-     * registra, inserisci, invia, richiedi... e gli equivalenti inglesi). Una domanda come
-     * "Posso farmi rimborsare 200€?" non li contiene: è una domanda, non un ordine.
-     */
-    private const OPEN_VERBS = '/\b(apr\w*|cre\w*|registr\w*|inserisc\w*|invi\w*|richied\w*|open\w*|submit\w*|file)\b/iu';
-
-    /**
-     * @param  list<string>  $userTexts  i messaggi DELL'UTENTE (il corrente e quelli precedenti della
-     *                                   conversazione): servono a verificare che l'importo non sia inventato
      * @param  string  $currentMessage  l'ultimo messaggio dell'utente: deve chiedere esplicitamente l'azione
      */
     public function __construct(
@@ -54,8 +43,9 @@ class ReimbursementTool
             ->as('createReimbursementRequest')
             ->for(
                 'Apre una richiesta di rimborso spese per l\'utente. '
-                .'Da usare SOLO quando l\'utente chiede esplicitamente di aprire/creare una richiesta di rimborso '
-                .'e ha indicato l\'importo.'
+                .'Da usare quando l\'utente chiede di aprire, aggiungere, creare, inserire o registrare una richiesta di rimborso '
+                .'(anche in forma breve e imperativa) e ha indicato l\'importo. '
+                .'Non va usato per domande sui limiti, sui permessi o ipotetiche.'
             )
             ->withNumberParameter('amount', 'Importo in euro, numero positivo (es. 50 oppure 12.5).')
             // Niente esempi nella descrizione dei parametri: i modelli piccoli li copiano (provato dal
@@ -80,10 +70,12 @@ class ReimbursementTool
     /** Il risultato testuale viene letto dal modello: deve dire chiaramente cos'è successo. */
     private function execute(mixed $amount, ?string $description): string
     {
-        // Barriera 1 — intento: l'ultimo messaggio deve CHIEDERE l'azione, non solo parlarne.
-        // Provato dal vivo: llama3.2 ha aperto un rimborso da 200 € in risposta alla domanda
+        // Barriera 1 — intento: l'ultimo messaggio deve CHIEDERE l'azione, non solo parlarne. Accetta i verbi
+        // naturali di creazione (apri, aggiungi, crea, inserisci, registra, richiedi...) e la forma breve
+        // imperativa con importo; blocca domande informative, di permesso e ipotesi (vedi ReimbursementIntent).
+        // Provato dal vivo: un modello piccolo aprì un rimborso da 200 € in risposta alla domanda
         // "Posso farmi rimborsare 200€ per una cena?". Un'azione con effetti non si esegue su una domanda.
-        if (! preg_match(self::OPEN_VERBS, $this->currentMessage)) {
+        if (! ReimbursementIntent::isActionRequest($this->currentMessage)) {
             return 'ERRORE: l\'ultimo messaggio dell\'utente non chiede di aprire una richiesta di rimborso (è una domanda). '
                 .'Nessuna richiesta è stata creata. Rispondi alla domanda usando gli estratti, senza strumenti.';
         }

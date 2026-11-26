@@ -28,6 +28,10 @@ use Prism\Prism\ValueObjects\Messages\UserMessage;
  */
 class ChatService
 {
+    /** Risposta onesta quando il modello dichiara un rimborso creato ma nessun rimborso è stato salvato. */
+    public const NOT_CREATED = 'Non sono riuscito a registrare il rimborso: nessuna richiesta è stata creata. '
+        .'Riprova indicando importo e motivo, ad esempio «Apri un rimborso da 40 € per cena».';
+
     public function __construct(
         private readonly EmbeddingService $embeddings,
         private readonly ChunkRetriever $retriever,
@@ -79,6 +83,33 @@ class ChatService
         $actions = $tool->actions();
         $answer = trim($response->text);
 
+        // Rete di sicurezza: ordine esplicito con UN importo scritto dall'utente, ma il modello non ha chiamato il
+        // tool (provato dal vivo con "allora un rimborso per hotel da 120 euro": a volte lo NARRA invece di
+        // eseguirlo). Il backend crea il rimborso con lo stesso servizio e le stesse barriere: importo scritto
+        // dall'utente per costruzione, tetto e CHECK del DB, stato OPEN. Non è il modello a decidere: è l'utente
+        // ad aver dato un ordine non ambiguo.
+        $notCreated = false;
+        if ($actions === []) {
+            $direct = ReimbursementIntent::parseDirectRequest($message);
+            if ($direct !== null) {
+                try {
+                    $created = $this->reimbursements->create($direct['amount'], $direct['description'], $conversationId);
+                    $actions[] = [
+                        'type' => 'REIMBURSEMENT_CREATED',
+                        'reimbursementId' => $created->id,
+                        'amount' => $created->amount,
+                        'currency' => $created->currency,
+                        'description' => $created->description,
+                    ];
+                    $answer = $this->confirmation($actions[0]);
+                } catch (\InvalidArgumentException $e) {
+                    // Es. importo oltre il tetto: nessun rimborso, e l'utente ne conosce il motivo.
+                    $answer = 'Non è stato creato nessun rimborso: '.$e->getMessage();
+                    $notCreated = true;
+                }
+            }
+        }
+
         // Dopo un'azione riuscita la risposta deve confermarla. I modelli piccoli sbagliano in due modi
         // (visti dal vivo con llama3.2): testo vuoto, oppure la frase di rifiuto "non ho trovato nei
         // documenti" perché gli estratti non parlano di rimborsi. In entrambi i casi si usa una
@@ -86,6 +117,14 @@ class ChatService
         if ($actions !== [] && ($answer === '' || str_contains($answer, PromptBuilder::REFUSAL))) {
             $answer = $this->confirmation($actions[0]);
         }
+        // Conferma FALSA: la richiesta era un ordine, nessun rimborso è stato salvato, ma la risposta dice il
+        // contrario (il modello ha scritto a parole una chiamata al tool con un risultato inventato). Si
+        // sostituisce con un messaggio onesto: all'utente non deve mai arrivare un'azione mai avvenuta.
+        if ($actions === [] && ! $notCreated && ReimbursementIntent::isActionRequest($message) && ReimbursementIntent::claimsCreation($answer)) {
+            $answer = self::NOT_CREATED;
+            $notCreated = true;
+        }
+
         // Citazione inventata: senza estratti recuperati nessuna risposta può citare un documento.
         // Visto dal vivo con qwen2.5:7b: contesto vuoto -> "[prenotazione_aeroporto.pdf, p. 2]", un
         // file mai caricato. Meglio il rifiuto onesto di una fonte falsa.
@@ -99,7 +138,7 @@ class ChatService
 
         $sources = array_map(
             fn (RetrievedChunk $c) => $this->sourceToArray($c),
-            $this->sourceResolver->resolve($answer, $chunks, $actions !== []),
+            $this->sourceResolver->resolve($answer, $chunks, $actions !== [] || $notCreated),
         );
 
         // --- 4. Persistenza (solo a esito positivo: se l'LLM fallisce non salviamo mezze conversazioni)

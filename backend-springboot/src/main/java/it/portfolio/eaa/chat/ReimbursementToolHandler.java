@@ -32,15 +32,6 @@ class ReimbursementToolHandler {
     static final String CURRENT_MESSAGE = "currentMessage";
     static final String ACTIONS = "actions";
 
-    /**
-     * Verbi di una RICHIESTA ESPLICITA di aprire/creare/inviare (apri, aprimi, aprirmi, crea, registra,
-     * inserisci, invia, richiedi... e gli equivalenti inglesi). Una domanda come "Posso farmi rimborsare
-     * 200€?" non li contiene: è una domanda, non un ordine.
-     */
-    private static final Pattern OPEN_VERBS = Pattern.compile(
-            "\\b(apr\\w*|cre\\w*|registr\\w*|inserisc\\w*|invi\\w*|richied\\w*|open\\w*|submit\\w*|file)\\b",
-            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE | Pattern.UNICODE_CHARACTER_CLASS);
-
     private static final Pattern NUMBER = Pattern.compile("\\d+(?:[.,]\\d{1,2})?");
     private static final BigDecimal TOLERANCE = new BigDecimal("0.005");
 
@@ -59,8 +50,10 @@ class ReimbursementToolHandler {
         List<ActionDto> actions = (List<ActionDto>) context.get(ACTIONS);
         UUID conversationId = (UUID) context.get(CONVERSATION_ID);
 
-        // Barriera 1 — intento: l'ultimo messaggio deve CHIEDERE l'azione, non solo parlarne.
-        if (!OPEN_VERBS.matcher(currentMessage).find()) {
+        // Barriera 1 — intento: l'ultimo messaggio deve CHIEDERE l'azione, non solo parlarne. Accetta i verbi
+        // naturali di creazione (apri, aggiungi, crea, inserisci, registra, richiedi...) e la forma breve
+        // imperativa con importo; blocca domande informative, di permesso e ipotesi (vedi ReimbursementIntent).
+        if (!ReimbursementIntent.isActionRequest(currentMessage)) {
             return "ERRORE: l'ultimo messaggio dell'utente non chiede di aprire una richiesta di rimborso (è una domanda). "
                     + "Nessuna richiesta è stata creata. Rispondi alla domanda usando gli estratti, senza strumenti.";
         }

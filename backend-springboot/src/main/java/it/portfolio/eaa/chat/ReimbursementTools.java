@@ -29,8 +29,9 @@ class ReimbursementTools {
     static final String TOOL_NAME = "createReimbursementRequest";
 
     @Bean(TOOL_NAME)
-    @Description("Apre una richiesta di rimborso spese per l'utente. Da usare SOLO quando l'utente chiede "
-            + "esplicitamente di aprire/creare una richiesta di rimborso e ha indicato l'importo.")
+    @Description("Apre una richiesta di rimborso spese per l'utente. Da usare quando l'utente chiede di aprire, "
+            + "aggiungere, creare, inserire o registrare una richiesta di rimborso (anche in forma breve e imperativa) "
+            + "e ha indicato l'importo. Non va usato per domande sui limiti, sui permessi o ipotetiche.")
     BiFunction<ReimbursementToolArgs, ToolContext, String> createReimbursementRequest(ReimbursementService service) {
         ReimbursementToolHandler handler = new ReimbursementToolHandler(service);
         return handler::execute;

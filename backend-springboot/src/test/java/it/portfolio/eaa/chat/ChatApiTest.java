@@ -99,6 +99,103 @@ class ChatApiTest extends IntegrationTest {
     }
 
     @Test
+    void iSinonimiNaturaliDiCreazioneApronoIlRimborso() throws Exception {
+        // Frasi reali segnalate dall'utente: prima il modello rispondeva "non ho trovato nei documenti".
+        seedPolicy();
+        Object[][] cases = {
+                {"aggiungi un rimborso 20 euro per taxi", 20, "20.00"},
+                {"allora un rimborso per hotel da 120 euro", 120, "120.00"},
+                {"aggiungi un rimborso 20 euro per hotel", 20, "20.00"},
+        };
+
+        for (Object[] c : cases) {
+            ollama.queueChat(FakeOllama.chatToolCall(TOOL, Map.of("amount", c[1])), FakeOllama.chatText("Fatto."));
+
+            chat((String) c[0]).andExpect(status().isOk()).andExpect(jsonPath("$.actions[0].amount").value((String) c[2]));
+        }
+
+        assertThat(count("reimbursement_requests")).isEqualTo(3);
+    }
+
+    @Test
+    void ilPromptAmmetteTuttiIVerbiNaturaliELaFormaBreve() throws Exception {
+        seedPolicy(FakeOllama.chatText("ok"));
+
+        chat("aggiungi un rimborso 20 euro per taxi").andExpect(status().isOk());
+
+        assertThat(ollama.chatRequests().get(0).get("messages").get(0).get("content").asString())
+                .contains("aggiungi").contains("anche senza verbo").contains("non rispondere MAI con questa frase");
+    }
+
+    @Test
+    void unaConfermaFalsaDelModelloVieneSostituitaDaUnMessaggioOnesto() throws Exception {
+        // Caso reale: il modello NON chiama il tool ma scrive a parole la chiamata e un risultato inventato.
+        seedPolicy(FakeOllama.chatText(
+                "Creo una richiesta di rimborso per hotel da 120 euro. Lo strumento ha risposto: {\"reimbursement_request_id\": \"RR123456\", \"amount\": 120.0} "
+                        + "Il tuo rimborso è stato registrato con successo."));
+
+        chat("Apri un rimborso per la cena di ieri")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.answer").value(ChatService.NOT_CREATED))
+                .andExpect(jsonPath("$.actions").isEmpty())
+                .andExpect(jsonPath("$.sources").isEmpty());
+
+        assertThat(count("reimbursement_requests")).isZero();
+    }
+
+    @Test
+    void seIlModelloChiedeLImportoMancanteLaRispostaRestaIntatta() throws Exception {
+        seedPolicy(FakeOllama.chatText("Quale importo vuoi rimborsare per la cena di ieri?"));
+
+        chat("Apri un rimborso per la cena di ieri")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.answer").value("Quale importo vuoi rimborsare per la cena di ieri?"));
+    }
+
+    @Test
+    void seIlModelloNonChiamaIlToolUnOrdineNonAmbiguoVieneEseguitoDalBackend() throws Exception {
+        // "allora un rimborso per hotel da 120 euro": il modello NARRA la chiamata invece di farla. Il backend crea
+        // il rimborso con lo stesso servizio e le stesse barriere (importo scritto dall'utente, tetto, stato OPEN).
+        seedPolicy(FakeOllama.chatText("Creo una richiesta di rimborso per hotel da 120 euro. Lo strumento ha risposto: {\"id\": \"RR123456\"}"));
+
+        JsonNode response = body(chat("allora un rimborso per hotel da 120 euro").andExpect(status().isOk()));
+
+        JsonNode action = response.get("actions").get(0);
+        assertThat(action.get("amount").asString()).isEqualTo("120.00");
+        assertThat(action.get("description").asString()).isEqualTo("hotel");
+        assertThat(response.get("answer").asString()).contains("120,00 EUR").doesNotContain("RR123456");
+        assertThat(response.get("sources")).isEmpty();
+        Map<String, Object> row = jdbc.queryForMap(
+                "SELECT status, source_conversation_id::text AS conv FROM reimbursement_requests WHERE id = ?::uuid", action.get("reimbursementId").asString());
+        assertThat(row.get("status")).isEqualTo("OPEN");
+        assertThat(row.get("conv")).isEqualTo(response.get("conversationId").asString());
+    }
+
+    @Test
+    void ilFallbackRispettaIlTettoESpiegaPercheNonHaCreatoNulla() throws Exception {
+        seedPolicy(FakeOllama.chatText("Fatto."));
+
+        JsonNode response = body(chat("Apri un rimborso da 20000 euro").andExpect(status().isOk()));
+
+        assertThat(response.get("actions")).isEmpty();
+        assertThat(response.get("answer").asString()).contains("supera il massimo consentito");
+        assertThat(count("reimbursement_requests")).isZero();
+    }
+
+    @Test
+    void ilFallbackNonScattaPerDomandeIpotesiOImportiNegativi() throws Exception {
+        seedPolicy();
+
+        for (String message : List.of("Posso farmi rimborsare 200€ per una cena?", "Apri un rimborso per meno 5 euro", "Qual è il limite per l'hotel a notte?")) {
+            ollama.queueChat(FakeOllama.chatText("Ok."));
+
+            chat(message).andExpect(status().isOk()).andExpect(jsonPath("$.actions").isEmpty());
+        }
+
+        assertThat(count("reimbursement_requests")).isZero();
+    }
+
+    @Test
     void conversazioneContinuaELoStoricoArrivaAlModello() throws Exception {
         seedPolicy(FakeOllama.chatText("Prima risposta [policy.pdf, p. 2]."), FakeOllama.chatText("Seconda risposta."));
 

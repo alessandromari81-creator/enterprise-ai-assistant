@@ -116,10 +116,10 @@ Spring AI's stock `PgVectorStore` creates its *own* table, which would have made
 
 An LLM that can write to a database must not be trusted to decide *when*. While testing against a real 3B-parameter model, it opened a €50 reimbursement in response to a plain question about the dinner limit (copying the number from the documents), and a €200 one in response to *"Can I get €200 reimbursed for a dinner?"*. Prompts alone don't fix that, so the guardrails are **in code, independent of the model**, and identical in both backends:
 
-1. **Explicit-intent guard** — the user's latest message must contain an opening verb (*open, create, register, submit…* / *apri, crea, registra, invia…*). A question is not an order.
+1. **Explicit-intent guard** — the user's latest message must be an actual *request* to create a refund: any natural creation verb (*open, add, create, insert, register, request, send…* / *apri, aggiungi, crea, inserisci, registra, richiedi, invia…*) or a short imperative with an amount (*"un rimborso da 120 euro per hotel"*). Questions, permission questions and hypotheticals (*"Can I get €200 reimbursed?"*, *"What's the hotel limit?"*) are never orders.
 2. **Amount-provenance guard** — the amount passed to the tool must literally appear in the user's own messages. The model may never take it from the documents or invent it.
 
-On top of those: a server-side cap (€10,000) enforced in the service **and** by a database `CHECK` constraint, requests always created as `OPEN` (a human approves), every tool outcome returned to the model as plain text, and the model's output rendered in the UI as text only (never `innerHTML`). Citations pointing at documents that were never retrieved are detected and replaced by an honest refusal. All of this is covered by automated tests and was exercised with a real model.
+On top of those: a server-side cap (€10,000) enforced in the service **and** by a database `CHECK` constraint, requests always created as `OPEN` (a human approves), every tool outcome returned to the model as plain text, and the model's output rendered in the UI as text only (never `innerHTML`). Citations pointing at documents that were never retrieved are detected and replaced by an honest refusal. Because small models sometimes *narrate* a tool call instead of making it — and then announce a refund that was never created — two more safeguards are in code: a reply that claims success when nothing was saved is replaced by an honest message, and an unambiguous order with a single user-written amount is carried out by the backend itself, through the same guarded service, if the model fails to call the tool. All of this is covered by automated tests and was exercised with a real model.
 
 ### 3. Local-first AI: Ollama, native or in Docker — or OpenAI
 
@@ -167,7 +167,7 @@ Same contract, same behaviour, same database — different idioms. Sizes are mea
 | Provider switch | `AI_PROVIDER` in `.env` | `spring.ai.model.*` in `application.yml` (both starters on classpath, unused model types disabled) |
 | Schema | Idempotent migrations (+ shared init SQL) | None — shared init SQL, `ddl-auto: none` |
 | Application code | ≈ 2.1 k lines (comments included) | ≈ 2.1 k lines (comments included) |
-| Automated tests | **52** (PHPUnit, 1 188 assertions) | **67** (JUnit 5 + MockMvc) |
+| Automated tests | **131** (PHPUnit, 1 303 assertions) | **82** (JUnit 5 + MockMvc) |
 | Container image | 826 MB (dev image, bind-mounted source) | 803 MB (multi-stage, fat jar); app starts in ~4 s |
 | Gotchas hit | `artisan serve` ignores the container's env vars → use `php -S`; PHP warnings in the response body corrupt JSON → `display_errors=Off` | Spring AI 2.x dropped `toolNames()`; both starters on the classpath need unused model types set to `none` or the app won't boot without an API key; Tomcat needs `max-swallow-size` to return `413` on large uploads |
 | Honest take | Quickest to iterate; the AI part is a thin, readable layer | More ceremony, but the abstractions (`VectorStore`, tool callbacks, real tokenizer) are first-class and swappable |
@@ -202,8 +202,8 @@ Only one backend? Use just `--profile laravel` **or** `--profile springboot`. St
 ```bash
 docker compose up -d postgres
 docker compose exec postgres psql -U eaa -d eaa -c 'CREATE DATABASE eaa_test'          # once, for Laravel
-docker compose run --rm -e RUN_MIGRATIONS=false backend-laravel php artisan test      # 52 tests
-(cd backend-springboot && ./mvnw test)                                                 # 67 tests (creates its own DB)
+docker compose run --rm -e RUN_MIGRATIONS=false backend-laravel php artisan test      # 131 tests
+(cd backend-springboot && ./mvnw test)                                                 # 82 tests (creates its own DB)
 (cd frontend-angular && npm test)                                                      # 64 tests
 ```
 
@@ -247,7 +247,7 @@ The root [`.gitignore`](.gitignore) blocks `.env*` (except `.env.example`), key 
 
 What was actually run (not just written):
 
-- **183 automated tests** across the three apps (52 + 67 + 64) — real PostgreSQL + pgvector, faked LLM.
+- **277 automated tests** across the three apps (131 + 82 + 64) — real PostgreSQL + pgvector, faked LLM.
 - **Live runs against a real local model** (`qwen2.5:7b`): ingestion, cited answers, tool calling, and the failure modes above — which is how the guardrails and the similarity threshold were found.
 - **Cross-backend parity checks:** 15 API responses (data + every validation/404/405 error) and 6 real upload cases (no file, `.txt`, renamed executable, corrupt PDF, 21 MB, 50 MB) compared between `:8000` and `:8080` — identical.
 - **Real-browser end-to-end** (Playwright + Chromium, run manually, not committed): drag & drop, loading indicator, source badges, table auto-refresh, runtime backend switch with `localStorage` persistence, error states, responsive layout down to 360 px. Run against both backends.

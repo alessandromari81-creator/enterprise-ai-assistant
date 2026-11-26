@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\ChatMessage;
 use App\Models\ReimbursementRequest;
+use App\Services\Chat\ChatService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -232,6 +233,114 @@ class ChatApiTest extends TestCase
         ]);
 
         $this->postJson('/api/chat', ['message' => 'Apri un rimborso da 12,5 euro'])->assertOk()->assertJsonPath('actions.0.amount', '12.50');
+    }
+
+    public function test_i_sinonimi_naturali_di_creazione_aprono_il_rimborso(): void
+    {
+        // Frasi reali segnalate dall'utente: prima il modello rispondeva "non ho trovato nei documenti".
+        $this->seedPolicy([]);
+
+        foreach ([
+            ['aggiungi un rimborso 20 euro per taxi', 20],
+            ['allora un rimborso per hotel da 120 euro', 120],
+            ['aggiungi un rimborso 20 euro per hotel', 20],
+        ] as [$message, $amount]) {
+            FakeAi::fake([
+                FakeAi::chatToolCall('createReimbursementRequest', ['amount' => $amount]),
+                FakeAi::chatText('Fatto.'),
+            ]);
+
+            $this->postJson('/api/chat', ['message' => $message])
+                ->assertOk()
+                ->assertJsonPath('actions.0.amount', number_format($amount, 2, '.', ''));
+        }
+
+        $this->assertSame(3, ReimbursementRequest::query()->count());
+    }
+
+    public function test_il_prompt_ammette_tutti_i_verbi_naturali_e_la_forma_breve(): void
+    {
+        $this->seedPolicy([FakeAi::chatText('ok')]);
+
+        $this->postJson('/api/chat', ['message' => 'aggiungi un rimborso 20 euro per taxi'])->assertOk();
+
+        Http::assertSent(function (Request $r) {
+            if (! str_ends_with($r->url(), '/api/chat')) {
+                return false;
+            }
+            $system = $r->data()['messages'][0]['content'];
+
+            return str_contains($system, 'aggiungi') && str_contains($system, 'anche senza verbo')
+                && str_contains($system, 'non rispondere MAI con questa frase');
+        });
+    }
+
+    public function test_una_conferma_falsa_del_modello_viene_sostituita_da_un_messaggio_onesto(): void
+    {
+        // Caso reale: il modello NON chiama il tool ma scrive a parole la chiamata e un risultato inventato.
+        $this->seedPolicy([FakeAi::chatText(
+            'Creo una richiesta di rimborso per hotel da 120 euro. Lo strumento ha risposto: {"reimbursement_request_id": "RR123456", "amount": 120.0} '
+            .'Il tuo rimborso è stato registrato con successo.'
+        )]);
+
+        $response = $this->postJson('/api/chat', ['message' => 'Apri un rimborso per la cena di ieri'])->assertOk();
+
+        $this->assertSame(ChatService::NOT_CREATED, $response->json('answer'));
+        $this->assertSame([], $response->json('actions'));
+        $this->assertSame([], $response->json('sources'));
+        $this->assertSame(0, ReimbursementRequest::query()->count());
+    }
+
+    public function test_se_il_modello_chiede_l_importo_mancante_la_risposta_resta_intatta(): void
+    {
+        $this->seedPolicy([FakeAi::chatText('Quale importo vuoi rimborsare per la cena di ieri?')]);
+
+        $this->postJson('/api/chat', ['message' => 'Apri un rimborso per la cena di ieri'])
+            ->assertOk()
+            ->assertJsonPath('answer', 'Quale importo vuoi rimborsare per la cena di ieri?');
+    }
+
+    public function test_se_il_modello_non_chiama_il_tool_un_ordine_non_ambiguo_viene_eseguito_dal_backend(): void
+    {
+        // "allora un rimborso per hotel da 120 euro": il modello NARRA la chiamata invece di farla. Il backend crea
+        // il rimborso con lo stesso servizio e le stesse barriere (importo scritto dall'utente, tetto, stato OPEN).
+        $this->seedPolicy([FakeAi::chatText('Creo una richiesta di rimborso per hotel da 120 euro. Lo strumento ha risposto: {"id": "RR123456"}')]);
+
+        $response = $this->postJson('/api/chat', ['message' => 'allora un rimborso per hotel da 120 euro'])->assertOk();
+
+        $action = $response->json('actions.0');
+        $this->assertSame('120.00', $action['amount']);
+        $this->assertSame('hotel', $action['description']);
+        $this->assertStringContainsString('120,00 EUR', $response->json('answer'));
+        $this->assertStringNotContainsString('RR123456', $response->json('answer'));
+        $row = ReimbursementRequest::query()->findOrFail($action['reimbursementId']);
+        $this->assertSame('OPEN', $row->status->value);
+        $this->assertSame($response->json('conversationId'), $row->source_conversation_id);
+        $this->assertSame([], $response->json('sources'));
+    }
+
+    public function test_il_fallback_rispetta_il_tetto_e_spiega_perche_non_ha_creato_nulla(): void
+    {
+        $this->seedPolicy([FakeAi::chatText('Fatto.')]);
+
+        $response = $this->postJson('/api/chat', ['message' => 'Apri un rimborso da 20000 euro'])->assertOk();
+
+        $this->assertSame([], $response->json('actions'));
+        $this->assertStringContainsString('supera il massimo consentito', $response->json('answer'));
+        $this->assertSame(0, ReimbursementRequest::query()->count());
+    }
+
+    public function test_il_fallback_non_scatta_per_domande_ipotesi_o_importi_negativi(): void
+    {
+        $this->seedPolicy([]);
+
+        foreach (['Posso farmi rimborsare 200€ per una cena?', 'Apri un rimborso per meno 5 euro', 'Qual è il limite per l\'hotel a notte?'] as $message) {
+            FakeAi::fake([FakeAi::chatText('Ok.')]);
+
+            $this->postJson('/api/chat', ['message' => $message])->assertOk()->assertJsonPath('actions', []);
+        }
+
+        $this->assertSame(0, ReimbursementRequest::query()->count());
     }
 
     public function test_la_conversazione_continua_e_lo_storico_arriva_al_modello(): void

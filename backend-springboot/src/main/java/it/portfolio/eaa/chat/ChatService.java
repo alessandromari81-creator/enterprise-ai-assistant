@@ -5,6 +5,8 @@ import it.portfolio.eaa.common.Iso;
 import it.portfolio.eaa.config.EaaProperties;
 import it.portfolio.eaa.rag.DocumentChunkVectorStore;
 import it.portfolio.eaa.rag.RetrievedChunk;
+import it.portfolio.eaa.reimbursement.ReimbursementRequest;
+import it.portfolio.eaa.reimbursement.ReimbursementService;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.time.Instant;
@@ -46,6 +48,10 @@ class ChatService {
 
     private static final Logger log = LoggerFactory.getLogger(ChatService.class);
 
+    /** Risposta onesta quando il modello dichiara un rimborso creato ma nessun rimborso è stato salvato. */
+    static final String NOT_CREATED = "Non sono riuscito a registrare il rimborso: nessuna richiesta è stata creata. "
+            + "Riprova indicando importo e motivo, ad esempio «Apri un rimborso da 40 € per cena».";
+
     /** Una citazione "[qualcosa.pdf, p. N" nel testo della risposta. */
     private static final Pattern CITATION =
             Pattern.compile("\\[[^\\]]*\\.pdf\\s*,?\\s*(?:pagina|pag\\.?|p\\.?)\\s*\\d+", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
@@ -56,6 +62,7 @@ class ChatService {
     private final PromptBuilder prompts;
     private final SourceResolver sourceResolver;
     private final ToolCallback reimbursementTool;
+    private final ReimbursementService reimbursements;
     private final EaaProperties properties;
     private final TransactionTemplate tx;
     private final JsonMapper json;
@@ -67,6 +74,7 @@ class ChatService {
             PromptBuilder prompts,
             SourceResolver sourceResolver,
             ToolCallback createReimbursementRequestTool,
+            ReimbursementService reimbursements,
             EaaProperties properties,
             TransactionTemplate tx,
             JsonMapper json) {
@@ -76,6 +84,7 @@ class ChatService {
         this.prompts = prompts;
         this.sourceResolver = sourceResolver;
         this.reimbursementTool = createReimbursementRequestTool;
+        this.reimbursements = reimbursements;
         this.properties = properties;
         this.tx = tx;
         this.json = json;
@@ -122,14 +131,44 @@ class ChatService {
         }
 
         // --- 3. Esito: azioni, risposta, fonti ------------------------------------------------
-        List<ActionDto> actions = List.copyOf(actionsCollector);
+        List<ActionDto> actions = new ArrayList<>(actionsCollector);
         String answer = content == null ? "" : content.strip();
+
+        // Rete di sicurezza: ordine esplicito con UN importo scritto dall'utente, ma il modello non ha chiamato il
+        // tool (provato dal vivo con "allora un rimborso per hotel da 120 euro": a volte lo NARRA invece di
+        // eseguirlo). Il backend crea il rimborso con lo stesso servizio e le stesse barriere: importo scritto
+        // dall'utente per costruzione, tetto e CHECK del DB, stato OPEN. Non è il modello a decidere: è l'utente
+        // ad aver dato un ordine non ambiguo.
+        boolean notCreated = false;
+        if (actions.isEmpty()) {
+            ReimbursementIntent.DirectRequest direct = ReimbursementIntent.parseDirectRequest(message);
+            if (direct != null) {
+                try {
+                    ReimbursementRequest created = reimbursements.create(direct.amount(), direct.description(), conversationId);
+                    actions.add(new ActionDto(ActionDto.REIMBURSEMENT_CREATED, created.getId().toString(),
+                            created.getAmount().toPlainString(), created.getCurrency(), created.getDescription()));
+                    answer = confirmation(actions.get(0));
+                } catch (IllegalArgumentException e) {
+                    // Es. importo oltre il tetto: nessun rimborso, e l'utente ne conosce il motivo.
+                    answer = "Non è stato creato nessun rimborso: " + e.getMessage();
+                    notCreated = true;
+                }
+            }
+        }
 
         // Dopo un'azione riuscita la risposta deve confermarla. I modelli piccoli sbagliano in due modi (visti
         // dal vivo): testo vuoto, oppure la frase di rifiuto "non ho trovato nei documenti" perché gli estratti
         // non parlano di rimborsi. In entrambi i casi si usa una conferma costruita dal codice con i dati salvati.
         if (!actions.isEmpty() && (answer.isEmpty() || answer.contains(PromptBuilder.REFUSAL))) {
             answer = confirmation(actions.get(0));
+        }
+
+        // Conferma FALSA: la richiesta era un ordine, nessun rimborso è stato salvato, ma la risposta dice il
+        // contrario (il modello ha scritto a parole una chiamata al tool con un risultato inventato). Si
+        // sostituisce con un messaggio onesto: all'utente non deve mai arrivare un'azione mai avvenuta.
+        if (actions.isEmpty() && !notCreated && ReimbursementIntent.isActionRequest(message) && ReimbursementIntent.claimsCreation(answer)) {
+            answer = NOT_CREATED;
+            notCreated = true;
         }
 
         // Citazione inventata: senza estratti recuperati nessuna risposta può citare un documento (visto dal
@@ -141,7 +180,7 @@ class ChatService {
             answer = PromptBuilder.REFUSAL;
         }
 
-        List<SourceDto> sources = sourceResolver.resolve(answer, chunks, !actions.isEmpty()).stream()
+        List<SourceDto> sources = sourceResolver.resolve(answer, chunks, !actions.isEmpty() || notCreated).stream()
                 .map(this::toSource)
                 .toList();
 
